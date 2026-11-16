@@ -1,0 +1,408 @@
+// This Pine Script® code is subject to the terms of the
+// Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Forex_Intelligence
+// © RM Trading Academy
+
+//@version=6
+indicator("RM Trading Academy PRO v6.2 - MTF Supply Demand + Manual Reset", overlay=true,
+     max_lines_count=100, max_labels_count=250, max_boxes_count=30)
+
+//==================================================
+// 1. INPUTS
+//==================================================
+fastLength          = input.int(20, "Fast EMA", minval=1, group="EMA Settings")
+slowLength          = input.int(50, "Slow EMA", minval=1, group="EMA Settings")
+slopeLookback       = input.int(3, "EMA Slope Lookback", minval=1, maxval=20, group="EMA Settings")
+minimumSeparationATR= input.float(0.10, "Minimum EMA Separation - ATR Multiple", minval=0.0, step=0.05, group="EMA Settings")
+
+zoneLookback        = input.int(5, "EMA Return Confirmation Lookback", minval=1, maxval=20, group="Signal Settings")
+liquidityLength     = input.int(10, "Liquidity Lookback", minval=2, maxval=100, group="Signal Settings")
+
+stopBufferATR       = input.float(0.10, "Stop-Loss ATR Buffer", minval=0.0, step=0.05, group="Trade Management")
+atrLength           = input.int(14, "ATR Length", minval=1, group="Trade Management")
+lineLength          = input.int(30, "Trade-Level Line Length", minval=5, maxval=200, group="Trade Management")
+manualResetTime     = input.time(0, "Manual Active-Trade Reset Time", group="Trade Management",
+     tooltip="To reset an active virtual trade, select the current date and time. Use a newer time for every reset.")
+
+rangeLookback       = input.int(20, "Range Detection Lookback", minval=5, maxval=100, group="Supply & Demand")
+rangeATRMultiple    = input.float(3.0, "Maximum Range Width - ATR Multiple", minval=0.5, step=0.25, group="Supply & Demand")
+zonePercentage      = input.float(0.25, "Supply / Demand Zone Size", minval=0.10, maxval=0.45, step=0.05, group="Supply & Demand")
+sdBufferATR         = input.float(0.25, "Entry Protection Buffer - ATR", minval=0.0, maxval=2.0, step=0.05, group="Supply & Demand")
+zoneDisplayBars     = input.int(80, "Zone Display Length", minval=20, maxval=300, group="Supply & Demand")
+showCurrentTFZones  = input.bool(true, "Show Current Timeframe Zones", group="Supply & Demand")
+show1HZones         = input.bool(true, "Show 1H Supply / Demand", group="Supply & Demand")
+show4HZones         = input.bool(true, "Show 4H Supply / Demand", group="Supply & Demand")
+
+showEMA             = input.bool(true, "Show EMA Zone", group="Display Settings")
+showLiquidity       = input.bool(true, "Show Liquidity Sweeps", group="Display Settings")
+showRejection       = input.bool(true, "Show EMA Rejections", group="Display Settings")
+showEngulfing       = input.bool(true, "Show Engulfing Patterns", group="Display Settings")
+showSignals         = input.bool(true, "Show BUY / SELL Signals", group="Display Settings")
+showTradeLevels     = input.bool(true, "Show Entry, SL and TP Levels", group="Display Settings")
+showDashboard       = input.bool(true, "Show Dashboard", group="Display Settings")
+
+//==================================================
+// 2. EMA ENGINE
+//==================================================
+ema20 = ta.ema(close, fastLength)
+ema50 = ta.ema(close, slowLength)
+atr   = ta.atr(atrLength)
+
+ema20Plot = plot(showEMA ? ema20 : na, "EMA 20", color=color.red, linewidth=2)
+ema50Plot = plot(showEMA ? ema50 : na, "EMA 50", color=color.orange, linewidth=2)
+zoneTop    = math.max(ema20, ema50)
+zoneBottom = math.min(ema20, ema50)
+bullishBias = ema20 > ema50
+bearishBias = ema20 < ema50
+fill(ema20Plot, ema50Plot, color=showEMA ? (bullishBias ? color.new(color.green, 85) : color.new(color.red, 85)) : na, title="EMA Zone")
+
+bullishSlope = ema20 > ema20[slopeLookback] and ema50 > ema50[slopeLookback]
+bearishSlope = ema20 < ema20[slopeLookback] and ema50 < ema50[slopeLookback]
+separationValid = math.abs(ema20 - ema50) >= atr * minimumSeparationATR
+
+//==================================================
+// 3. SUPPLY AND DEMAND ENGINE
+//==================================================
+currentRangeHigh  = ta.highest(high, rangeLookback)
+currentRangeLow   = ta.lowest(low, rangeLookback)
+currentRangeWidth = currentRangeHigh - currentRangeLow
+currentRanging    = not na(atr) and currentRangeWidth <= atr * rangeATRMultiple
+
+currentSupplyTop    = currentRangeHigh
+currentSupplyBottom = currentRangeHigh - currentRangeWidth * zonePercentage
+currentDemandBottom = currentRangeLow
+currentDemandTop    = currentRangeLow + currentRangeWidth * zonePercentage
+
+h1RangeHigh = request.security(syminfo.tickerid, "60", ta.highest(high, rangeLookback), lookahead=barmerge.lookahead_off)
+h1RangeLow  = request.security(syminfo.tickerid, "60", ta.lowest(low, rangeLookback), lookahead=barmerge.lookahead_off)
+h1ATR       = request.security(syminfo.tickerid, "60", ta.atr(atrLength), lookahead=barmerge.lookahead_off)
+h1RangeWidth= h1RangeHigh - h1RangeLow
+h1Ranging   = not na(h1ATR) and h1RangeWidth <= h1ATR * rangeATRMultiple
+h1SupplyTop = h1RangeHigh
+h1SupplyBottom = h1RangeHigh - h1RangeWidth * zonePercentage
+h1DemandBottom = h1RangeLow
+h1DemandTop = h1RangeLow + h1RangeWidth * zonePercentage
+
+h4RangeHigh = request.security(syminfo.tickerid, "240", ta.highest(high, rangeLookback), lookahead=barmerge.lookahead_off)
+h4RangeLow  = request.security(syminfo.tickerid, "240", ta.lowest(low, rangeLookback), lookahead=barmerge.lookahead_off)
+h4ATR       = request.security(syminfo.tickerid, "240", ta.atr(atrLength), lookahead=barmerge.lookahead_off)
+h4RangeWidth= h4RangeHigh - h4RangeLow
+h4Ranging   = not na(h4ATR) and h4RangeWidth <= h4ATR * rangeATRMultiple
+h4SupplyTop = h4RangeHigh
+h4SupplyBottom = h4RangeHigh - h4RangeWidth * zonePercentage
+h4DemandBottom = h4RangeLow
+h4DemandTop = h4RangeLow + h4RangeWidth * zonePercentage
+
+f_manageBox(box id, bool enabled, int extension, float topPrice, float bottomPrice, color borderColour, color fillColour, string caption) =>
+    box result = id
+    if barstate.islast
+        if enabled and not na(topPrice) and not na(bottomPrice)
+            int leftBar = math.max(0, bar_index - zoneDisplayBars)
+            if na(result)
+                result := box.new(leftBar, topPrice, bar_index + extension, bottomPrice,
+                     border_color=borderColour, border_width=extension >= 35 ? 3 : extension >= 25 ? 2 : 1,
+                     bgcolor=fillColour, text=caption, text_color=color.white)
+            else
+                box.set_left(result, leftBar)
+                box.set_right(result, bar_index + extension)
+                box.set_top(result, topPrice)
+                box.set_bottom(result, bottomPrice)
+        else if not na(result)
+            box.delete(result)
+            result := na
+    result
+
+var box currentSupplyBox = na
+var box currentDemandBox = na
+var box h1SupplyBox = na
+var box h1DemandBox = na
+var box h4SupplyBox = na
+var box h4DemandBox = na
+
+currentSupplyBox := f_manageBox(currentSupplyBox, showCurrentTFZones and currentRanging, 15, currentSupplyTop, currentSupplyBottom, color.new(color.red, 35), color.new(color.red, 90), "CURRENT TF SUPPLY")
+currentDemandBox := f_manageBox(currentDemandBox, showCurrentTFZones and currentRanging, 15, currentDemandTop, currentDemandBottom, color.new(color.green, 35), color.new(color.green, 90), "CURRENT TF DEMAND")
+h1SupplyBox := f_manageBox(h1SupplyBox, show1HZones and h1Ranging, 25, h1SupplyTop, h1SupplyBottom, color.red, color.new(color.red, 84), "1H SUPPLY")
+h1DemandBox := f_manageBox(h1DemandBox, show1HZones and h1Ranging, 25, h1DemandTop, h1DemandBottom, color.green, color.new(color.green, 84), "1H DEMAND")
+h4SupplyBox := f_manageBox(h4SupplyBox, show4HZones and h4Ranging, 35, h4SupplyTop, h4SupplyBottom, color.maroon, color.new(color.red, 76), "4H SUPPLY")
+h4DemandBox := f_manageBox(h4DemandBox, show4HZones and h4Ranging, 35, h4DemandTop, h4DemandBottom, color.rgb(0, 100, 0), color.new(color.green, 76), "4H DEMAND")
+
+supplyConfluence = h1Ranging and h4Ranging and h1SupplyBottom <= h4SupplyTop and h1SupplyTop >= h4SupplyBottom
+demandConfluence = h1Ranging and h4Ranging and h1DemandBottom <= h4DemandTop and h1DemandTop >= h4DemandBottom
+protectionDistance = atr * sdBufferATR
+
+nearCurrentSupply = currentRanging and close <= currentSupplyTop and close >= currentSupplyBottom - protectionDistance
+nearH1Supply = h1Ranging and close <= h1SupplyTop and close >= h1SupplyBottom - protectionDistance
+nearH4Supply = h4Ranging and close <= h4SupplyTop and close >= h4SupplyBottom - protectionDistance
+buyBlockedBySupply = nearCurrentSupply or nearH1Supply or nearH4Supply
+
+nearCurrentDemand = currentRanging and close >= currentDemandBottom and close <= currentDemandTop + protectionDistance
+nearH1Demand = h1Ranging and close >= h1DemandBottom and close <= h1DemandTop + protectionDistance
+nearH4Demand = h4Ranging and close >= h4DemandBottom and close <= h4DemandTop + protectionDistance
+sellBlockedByDemand = nearCurrentDemand or nearH1Demand or nearH4Demand
+
+//==================================================
+// 4. PRICE-ACTION ENGINE
+//==================================================
+zoneTouched   = low <= zoneTop and high >= zoneBottom
+bullZoneReturn= bullishBias and zoneTouched
+bearZoneReturn= bearishBias and zoneTouched
+bullReject    = bullZoneReturn and close > zoneTop and close > open
+bearReject    = bearZoneReturn and close < zoneBottom and close < open
+
+plotshape(showRejection and bullReject, "Bullish EMA Rejection", text="R", style=shape.labelup, location=location.belowbar, color=color.yellow, textcolor=color.black, size=size.tiny)
+plotshape(showRejection and bearReject, "Bearish EMA Rejection", text="R", style=shape.labeldown, location=location.abovebar, color=color.yellow, textcolor=color.black, size=size.tiny)
+
+previousHigh = ta.highest(high[1], liquidityLength)
+previousLow  = ta.lowest(low[1], liquidityLength)
+bullSweep = not na(previousLow) and low < previousLow and close > previousLow
+bearSweep = not na(previousHigh) and high > previousHigh and close < previousHigh
+plotshape(showLiquidity and bullSweep, "Bullish Liquidity Sweep", text="LS", style=shape.labelup, location=location.belowbar, color=color.aqua, textcolor=color.black, size=size.tiny)
+plotshape(showLiquidity and bearSweep, "Bearish Liquidity Sweep", text="LS", style=shape.labeldown, location=location.abovebar, color=color.aqua, textcolor=color.black, size=size.tiny)
+
+bullEngulf = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
+bearEngulf = close < open and close[1] > open[1] and open >= close[1] and close <= open[1]
+plotshape(showEngulfing and bullEngulf, "Bullish Engulfing", text="ENG", style=shape.arrowup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.small)
+plotshape(showEngulfing and bearEngulf, "Bearish Engulfing", text="ENG", style=shape.arrowdown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.small)
+
+barsSinceBullReturn = ta.barssince(bullZoneReturn)
+barsSinceBearReturn = ta.barssince(bearZoneReturn)
+barsSinceBullReject = ta.barssince(bullReject)
+barsSinceBearReject = ta.barssince(bearReject)
+recentBullReturn = not na(barsSinceBullReturn) and barsSinceBullReturn <= zoneLookback
+recentBearReturn = not na(barsSinceBearReturn) and barsSinceBearReturn <= zoneLookback
+recentBullReject = not na(barsSinceBullReject) and barsSinceBullReject <= zoneLookback
+recentBearReject = not na(barsSinceBearReject) and barsSinceBearReject <= zoneLookback
+
+latestBullRejectionLow  = ta.valuewhen(bullReject, low, 0)
+latestBearRejectionHigh = ta.valuewhen(bearReject, high, 0)
+latestBullReturnBar = ta.valuewhen(bullZoneReturn, bar_index, 0)
+latestBearReturnBar = ta.valuewhen(bearZoneReturn, bar_index, 0)
+latestBullRejectBar = ta.valuewhen(bullReject, bar_index, 0)
+latestBearRejectBar = ta.valuewhen(bearReject, bar_index, 0)
+
+//==================================================
+// 5. TRADE STATE AND DRAWINGS
+//==================================================
+var bool tradeActive = false
+var string tradeDirection = ""
+var float activeEntry = na
+var float activeStop = na
+var float activeTP1 = na
+var float activeTP2 = na
+var float activeTP3 = na
+var string latestSignal = "WAITING"
+var int lastTradeExitBar = na
+
+var line entryLine = na
+var line stopLine = na
+var line tp1Line = na
+var line tp2Line = na
+var line tp3Line = na
+var label entryLabel = na
+var label stopLabel = na
+var label tp1Label = na
+var label tp2Label = na
+var label tp3Label = na
+var label activeSignalLabel = na
+
+buyStopHit  = tradeActive and tradeDirection == "BUY" and not na(activeStop) and low <= activeStop
+sellStopHit = tradeActive and tradeDirection == "SELL" and not na(activeStop) and high >= activeStop
+stopHitThisBar = buyStopHit or sellStopHit
+buyTP3Hit   = tradeActive and tradeDirection == "BUY" and not na(activeTP3) and high >= activeTP3
+sellTP3Hit  = tradeActive and tradeDirection == "SELL" and not na(activeTP3) and low <= activeTP3
+tp3HitThisBar = buyTP3Hit or sellTP3Hit
+
+// A timestamp is used instead of a checkbox so the reset remains valid after recalculation.
+manualResetThisBar = tradeActive and manualResetTime > 0 and manualResetTime >= time and manualResetTime < time_close
+bool tradeClosedThisBar = false
+
+// Stop loss and manual reset both invalidate and remove the active virtual setup.
+if stopHitThisBar or manualResetThisBar
+    tradeClosedThisBar := true
+    if not na(activeSignalLabel)
+        label.delete(activeSignalLabel)
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(stopLine)
+        line.delete(stopLine)
+    if not na(tp1Line)
+        line.delete(tp1Line)
+    if not na(tp2Line)
+        line.delete(tp2Line)
+    if not na(tp3Line)
+        line.delete(tp3Line)
+    if not na(entryLabel)
+        label.delete(entryLabel)
+    if not na(stopLabel)
+        label.delete(stopLabel)
+    if not na(tp1Label)
+        label.delete(tp1Label)
+    if not na(tp2Label)
+        label.delete(tp2Label)
+    if not na(tp3Label)
+        label.delete(tp3Label)
+    entryLine := na
+    stopLine := na
+    tp1Line := na
+    tp2Line := na
+    tp3Line := na
+    entryLabel := na
+    stopLabel := na
+    tp1Label := na
+    tp2Label := na
+    tp3Label := na
+    activeSignalLabel := na
+    tradeActive := false
+    tradeDirection := ""
+    activeEntry := na
+    activeStop := na
+    activeTP1 := na
+    activeTP2 := na
+    activeTP3 := na
+    latestSignal := "WAITING"
+    lastTradeExitBar := bar_index
+
+// TP3 completes the virtual trade but keeps the successful setup visible.
+if tp3HitThisBar and not stopHitThisBar and not manualResetThisBar
+    tradeClosedThisBar := true
+    activeSignalLabel := na
+    tradeActive := false
+    tradeDirection := ""
+    activeEntry := na
+    activeStop := na
+    activeTP1 := na
+    activeTP2 := na
+    activeTP3 := na
+    latestSignal := "WAITING"
+    lastTradeExitBar := bar_index
+
+freshBullSetup = na(lastTradeExitBar) or (not na(latestBullReturnBar) and not na(latestBullRejectBar) and latestBullReturnBar > lastTradeExitBar and latestBullRejectBar > lastTradeExitBar)
+freshBearSetup = na(lastTradeExitBar) or (not na(latestBearReturnBar) and not na(latestBearRejectBar) and latestBearReturnBar > lastTradeExitBar and latestBearRejectBar > lastTradeExitBar)
+
+buySignal = bullishBias and bullishSlope and separationValid and recentBullReturn and recentBullReject and bullEngulf and close > zoneTop and not buyBlockedBySupply and freshBullSetup
+sellSignal = bearishBias and bearishSlope and separationValid and recentBearReturn and recentBearReject and bearEngulf and close < zoneBottom and not sellBlockedByDemand and freshBearSetup
+confirmedBuySignal = buySignal and not buySignal[1] and barstate.isconfirmed and not tradeActive and not tradeClosedThisBar
+confirmedSellSignal = sellSignal and not sellSignal[1] and barstate.isconfirmed and not tradeActive and not tradeClosedThisBar
+
+//==================================================
+// 6. SIGNAL EXECUTION
+//==================================================
+bool buyOpenedThisBar = false
+bool sellOpenedThisBar = false
+
+if confirmedBuySignal or confirmedSellSignal
+    if not na(entryLine)
+        line.delete(entryLine)
+    if not na(stopLine)
+        line.delete(stopLine)
+    if not na(tp1Line)
+        line.delete(tp1Line)
+    if not na(tp2Line)
+        line.delete(tp2Line)
+    if not na(tp3Line)
+        line.delete(tp3Line)
+    if not na(entryLabel)
+        label.delete(entryLabel)
+    if not na(stopLabel)
+        label.delete(stopLabel)
+    if not na(tp1Label)
+        label.delete(tp1Label)
+    if not na(tp2Label)
+        label.delete(tp2Label)
+    if not na(tp3Label)
+        label.delete(tp3Label)
+
+if confirmedBuySignal
+    activeEntry := close
+    activeStop := math.min(latestBullRejectionLow - atr * stopBufferATR, low - atr * stopBufferATR)
+    float tradeRisk = activeEntry - activeStop
+    if tradeRisk > syminfo.mintick
+        tradeActive := true
+        tradeDirection := "BUY"
+        latestSignal := "BUY"
+        activeTP1 := activeEntry + tradeRisk
+        activeTP2 := activeEntry + tradeRisk * 2.0
+        activeTP3 := activeEntry + tradeRisk * 3.0
+        buyOpenedThisBar := true
+        if showSignals
+            activeSignalLabel := label.new(bar_index, low, "BUY", style=label.style_label_up, color=color.lime, textcolor=color.black)
+
+if confirmedSellSignal
+    activeEntry := close
+    activeStop := math.max(latestBearRejectionHigh + atr * stopBufferATR, high + atr * stopBufferATR)
+    float tradeRisk = activeStop - activeEntry
+    if tradeRisk > syminfo.mintick
+        tradeActive := true
+        tradeDirection := "SELL"
+        latestSignal := "SELL"
+        activeTP1 := activeEntry - tradeRisk
+        activeTP2 := activeEntry - tradeRisk * 2.0
+        activeTP3 := activeEntry - tradeRisk * 3.0
+        sellOpenedThisBar := true
+        if showSignals
+            activeSignalLabel := label.new(bar_index, high, "SELL", style=label.style_label_down, color=color.red, textcolor=color.white)
+
+if (buyOpenedThisBar or sellOpenedThisBar) and showTradeLevels
+    entryLine := line.new(bar_index, activeEntry, bar_index + lineLength, activeEntry, color=color.blue, width=2)
+    stopLine := line.new(bar_index, activeStop, bar_index + lineLength, activeStop, color=color.red, width=2)
+    tp1Line := line.new(bar_index, activeTP1, bar_index + lineLength, activeTP1, color=color.green)
+    tp2Line := line.new(bar_index, activeTP2, bar_index + lineLength, activeTP2, color=color.green)
+    tp3Line := line.new(bar_index, activeTP3, bar_index + lineLength, activeTP3, color=color.green, width=2)
+    entryLabel := label.new(bar_index + lineLength, activeEntry, "ENTRY\n" + str.tostring(activeEntry, format.mintick), style=label.style_label_left, color=color.blue, textcolor=color.white)
+    stopLabel := label.new(bar_index + lineLength, activeStop, "SL\n" + str.tostring(activeStop, format.mintick), style=label.style_label_left, color=color.red, textcolor=color.white)
+    tp1Label := label.new(bar_index + lineLength, activeTP1, "TP1 1:1\n" + str.tostring(activeTP1, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white)
+    tp2Label := label.new(bar_index + lineLength, activeTP2, "TP2 1:2\n" + str.tostring(activeTP2, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white)
+    tp3Label := label.new(bar_index + lineLength, activeTP3, "TP3 1:3\n" + str.tostring(activeTP3, format.mintick), style=label.style_label_left, color=color.green, textcolor=color.white)
+
+//==================================================
+// 7. DASHBOARD
+//==================================================
+trendText = bullishBias ? "BULLISH" : bearishBias ? "BEARISH" : "NEUTRAL"
+trendColour = bullishBias ? color.green : bearishBias ? color.red : color.gray
+slopeText = bullishSlope ? "UP" : bearishSlope ? "DOWN" : "MIXED / FLAT"
+slopeColour = bullishSlope ? color.green : bearishSlope ? color.red : color.orange
+emaReturnText = zoneTouched ? "PRICE IN ZONE" : (recentBullReturn or recentBearReturn) ? "RECENT RETURN" : "WAITING"
+emaReturnColour = zoneTouched ? color.yellow : (recentBullReturn or recentBearReturn) ? color.green : color.gray
+sdProtectionText = buyBlockedBySupply ? "BUY BLOCKED" : sellBlockedByDemand ? "SELL BLOCKED" : "CLEAR"
+confluenceText = supplyConfluence ? "SUPPLY" : demandConfluence ? "DEMAND" : "NONE"
+confluenceColour = supplyConfluence ? color.red : demandConfluence ? color.green : color.gray
+
+var table dashboard = table.new(position.top_right, 2, 12, border_width=1)
+f_cell(int row, string name, string value, color valueColour) =>
+    table.cell(dashboard, 0, row, name, bgcolor=color.new(color.gray, 75), text_color=color.white)
+    table.cell(dashboard, 1, row, value, bgcolor=valueColour, text_color=color.white)
+
+if barstate.islast
+    if showDashboard
+        table.cell(dashboard, 0, 0, "RM ACADEMY", bgcolor=color.black, text_color=color.white)
+        table.cell(dashboard, 1, 0, "V6.2", bgcolor=color.black, text_color=color.white)
+        f_cell(1, "Trend", trendText, trendColour)
+        f_cell(2, "EMA Slope", slopeText, slopeColour)
+        f_cell(3, "Separation", separationValid ? "VALID" : "TOO CLOSE", separationValid ? color.green : color.orange)
+        f_cell(4, "EMA Return", emaReturnText, emaReturnColour)
+        f_cell(5, "1H Structure", h1Ranging ? "RANGE" : "TREND", h1Ranging ? color.orange : color.green)
+        f_cell(6, "4H Structure", h4Ranging ? "RANGE" : "TREND", h4Ranging ? color.orange : color.green)
+        f_cell(7, "HTF Confluence", confluenceText, confluenceColour)
+        f_cell(8, "S/D Filter", sdProtectionText, (buyBlockedBySupply or sellBlockedByDemand) ? color.orange : color.green)
+        f_cell(9, "Trade", tradeActive ? tradeDirection + " ACTIVE" : "WAITING", tradeActive ? (tradeDirection == "BUY" ? color.green : color.red) : color.gray)
+        f_cell(10, "Signal", latestSignal, latestSignal == "BUY" ? color.green : latestSignal == "SELL" ? color.red : color.gray)
+        f_cell(11, "Chart", timeframe.period, color.blue)
+    else
+        table.clear(dashboard, 0, 0, 1, 11)
+
+//==================================================
+// 8. ALERTS
+//==================================================
+alertcondition(buyOpenedThisBar, "RM BUY", "RM Trading Academy PRO v6.2 BUY on {{ticker}} at {{close}}")
+alertcondition(sellOpenedThisBar, "RM SELL", "RM Trading Academy PRO v6.2 SELL on {{ticker}} at {{close}}")
+
+if buyOpenedThisBar
+    alert("RM BUY | " + syminfo.ticker + " | Entry " + str.tostring(activeEntry, format.mintick) +
+         " | SL " + str.tostring(activeStop, format.mintick) + " | TP1 " + str.tostring(activeTP1, format.mintick) +
+         " | TP2 " + str.tostring(activeTP2, format.mintick) + " | TP3 " + str.tostring(activeTP3, format.mintick), alert.freq_once_per_bar_close)
+
+if sellOpenedThisBar
+    alert("RM SELL | " + syminfo.ticker + " | Entry " + str.tostring(activeEntry, format.mintick) +
+         " | SL " + str.tostring(activeStop, format.mintick) + " | TP1 " + str.tostring(activeTP1, format.mintick) +
+         " | TP2 " + str.tostring(activeTP2, format.mintick) + " | TP3 " + str.tostring(activeTP3, format.mintick), alert.freq_once_per_bar_close)
+

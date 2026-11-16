@@ -1,0 +1,1 @@
+RM Trading Academy v2.1. Deploy extracted files to Netlify. Open data-prep.html to inspect/normalize an existing CSV, then backtest.html. This does not fetch historical prices, execute broker orders, or fully reproduce Pine v6.1.
