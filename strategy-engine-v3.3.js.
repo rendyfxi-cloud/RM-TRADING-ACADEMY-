@@ -1,0 +1,178 @@
+
+/* RM Trading Academy PRO v3.3 — historical M15 research engine.
+   Pine v6.1 signal rules, modified to exit at TP2 (2R).
+   Signal-close reference execution; no broker orders.
+   UTC M15 opening timestamps, oldest first. */
+(function (global) {
+  "use strict";
+  const DEFAULTS = Object.freeze({
+    fastLength:20, slowLength:50, slopeLookback:3,
+    minimumSeparationATR:0.10, zoneLookback:5,
+    liquidityLength:10, atrLength:14, stopBufferATR:0.10,
+    rangeLookback:20, rangeATRMultiple:3.0,
+    zonePercentage:0.25, supplyDemandBufferATR:0.25,
+    minTick:0.00001
+  });
+  const INTERVAL=900000;
+  function parseTime(value) {
+    if (typeof value === "number") return value;
+    const s=String(value).trim().replace(" ","T");
+    const n=Date.parse(/Z$|[+-]\d\d:\d\d$/.test(s)?s:s+"Z");
+    if (!Number.isFinite(n)) throw Error("Invalid UTC timestamp: "+value);
+    return n;
+  }
+  function ema(values, length) {
+    const out=Array(values.length).fill(null);
+    if (!values.length) return out;
+    const a=2/(length+1); let last=values[0]; out[0]=last;
+    for(let i=1;i<values.length;i++) {last=a*values[i]+(1-a)*last;out[i]=last;}
+    return out;
+  }
+  function atr(candles,length) {
+    const out=Array(candles.length).fill(null);
+    if(candles.length<length) return out;
+    const tr=candles.map((c,i)=>i===0?c.high-c.low:Math.max(c.high-c.low,Math.abs(c.high-candles[i-1].close),Math.abs(c.low-candles[i-1].close)));
+    let sum=0;for(let i=0;i<length;i++)sum+=tr[i];
+    let last=sum/length;out[length-1]=last;
+    for(let i=length;i<tr.length;i++){last=(last*(length-1)+tr[i])/length;out[i]=last;}
+    return out;
+  }
+  function aggregateCandles(candles,minutes) {
+    const ms=minutes*60000, expected=minutes/15, groups=[];
+    for(const c of candles){
+      const t=parseTime(c.time),bucket=Math.floor(t/ms)*ms;
+      let g=groups[groups.length-1];
+      if(!g||g.bucket!==bucket){
+        g={bucket,time:new Date(bucket).toISOString(),open:c.open,high:c.high,low:c.low,close:c.close,count:0,complete:false,nextExpected:bucket};
+        groups.push(g);
+      }
+      if(t!==g.nextExpected) g.hasGap=true;
+      g.nextExpected=t+INTERVAL;
+      g.high=Math.max(g.high,c.high);g.low=Math.min(g.low,c.low);g.close=c.close;g.count++;
+    }
+    for(const g of groups)g.complete=!g.hasGap&&g.count===expected&&g.nextExpected===g.bucket+ms;
+    return groups;
+  }
+  function rangeAt(candles,volatility,i,s){
+    if(i<s.rangeLookback-1||!Number.isFinite(volatility[i]))return null;
+    let hi=-Infinity,lo=Infinity;
+    for(let j=i-s.rangeLookback+1;j<=i;j++){
+      hi=Math.max(hi,candles[j].high);lo=Math.min(lo,candles[j].low);
+    }
+    const width=hi-lo;
+    return {high:hi,low:lo,width,atr:volatility[i],ranging:width<=volatility[i]*s.rangeATRMultiple,
+      supply:{low:hi-width*s.zonePercentage,high:hi},demand:{low:lo,high:lo+width*s.zonePercentage}};
+  }
+  function buildHTF(candles,minutes,s){
+    const all=aggregateCandles(candles,minutes);
+    // Missing/incomplete buckets must not contaminate HTF ATR or rolling ranges.
+    const series=all.filter(c=>c.complete);
+    const vol=atr(series,s.atrLength);
+    const ranges=series.map((c,i)=>{
+      // Require contiguous completed HTF history for the rolling range and ATR seed.
+      const start=Math.max(0,i-Math.max(s.rangeLookback,s.atrLength)-1);
+      for(let j=start+1;j<=i;j++){
+        if(series[j].bucket-series[j-1].bucket!==minutes*60000)return null;
+      }
+      return rangeAt(series,vol,i,s);
+    });
+    return {series,ranges,minutes};
+  }
+  function latestCompletedRange(data,closeTime){
+    const ms=data.minutes*60000;
+    for(let i=data.series.length-1;i>=0;i--){
+      if(data.series[i].bucket+ms<=closeTime)return data.ranges[i];
+    }
+    return null;
+  }
+  function nearSupply(close,r,b){return !!(r&&r.ranging&&close<=r.supply.high&&close>=r.supply.low-b);}
+  function nearDemand(close,r,b){return !!(r&&r.ranging&&close>=r.demand.low&&close<=r.demand.high+b);}
+  function bullEngulf(p,c){return c.close>c.open&&p.close<p.open&&c.open<=p.close&&c.close>=p.open;}
+  function bearEngulf(p,c){return c.close<c.open&&p.close>p.open&&c.open>=p.close&&c.close<=p.open;}
+  function analyze(inputCandles,options={}){
+    const s={...DEFAULTS,...options};
+    for(const k of ["fastLength","slowLength","slopeLookback","zoneLookback","liquidityLength","atrLength","rangeLookback"]){
+      if(!Number.isInteger(s[k])||s[k]<1)throw Error("Invalid setting: "+k);
+    }
+    for(const k of ["minimumSeparationATR","stopBufferATR","rangeATRMultiple","zonePercentage","supplyDemandBufferATR","minTick"]){
+      if(!Number.isFinite(s[k])||s[k]<0)throw Error("Invalid setting: "+k);
+    }
+    if(s.zonePercentage>0.5||s.rangeATRMultiple===0||s.minTick===0)throw Error("Invalid range or tick settings.");
+    if(!Array.isArray(inputCandles))throw Error("Candles must be an array.");
+    const candles=inputCandles.map(c=>({time:c.time,open:Number(c.open),high:Number(c.high),low:Number(c.low),close:Number(c.close)}));
+    let last=-Infinity;
+    for(const c of candles){
+      const t=parseTime(c.time);
+      if(t<=last||t%INTERVAL!==0||![c.open,c.high,c.low,c.close].every(Number.isFinite)||c.high<Math.max(c.open,c.close)||c.low>Math.min(c.open,c.close)||c.low>c.high)throw Error("Invalid, unordered or unaligned M15 candle.");
+      last=t;
+    }
+    const closes=candles.map(c=>c.close),fast=ema(closes,s.fastLength),slow=ema(closes,s.slowLength),vol=atr(candles,s.atrLength);
+    const h1=buildHTF(candles,60,s),h4=buildHTF(candles,240,s);
+    const signals=[],sweeps=[],trades=[];
+    const diagnostics={barsChecked:0,bullishCandidates:0,bearishCandidates:0,blockedBySupply:0,blockedByDemand:0,blockedByTradeState:0,confirmedSignals:0,stopExits:0,tp2Exits:0};
+    let lastBullReturn=-Infinity,lastBearReturn=-Infinity,lastBullReject=-Infinity,lastBearReject=-Infinity;
+    let bullLow=null,bearHigh=null,lastExit=-1,trade=null,prevBuy=false,prevSell=false;
+    for(let i=0;i<candles.length;i++){
+      const c=candles[i],p=candles[i-1];
+      if(!p||i<s.slopeLookback||vol[i]===null)continue;
+      diagnostics.barsChecked++;
+      let closed=false;
+      if(trade&&i>trade.signalIndex){
+        const hitSL=trade.direction==="BUY"?c.low<=trade.sl:c.high>=trade.sl;
+        const hitTP=trade.direction==="BUY"?c.high>=trade.tp2:c.low<=trade.tp2;
+        if(hitSL||hitTP){
+          trade.exitIndex=i;trade.exitTime=c.time;trade.exitReason=hitSL?"SL":"TP2";trade.exitPrice=hitSL?trade.sl:trade.tp2;
+          trades.push(trade);diagnostics[hitSL?"stopExits":"tp2Exits"]++;
+          trade=null;closed=true;lastExit=i;
+        }
+      }
+      const top=Math.max(fast[i],slow[i]),bottom=Math.min(fast[i],slow[i]);
+      const bullish=fast[i]>slow[i],bearish=fast[i]<slow[i];
+      const up=fast[i]>fast[i-s.slopeLookback]&&slow[i]>slow[i-s.slopeLookback];
+      const down=fast[i]<fast[i-s.slopeLookback]&&slow[i]<slow[i-s.slopeLookback];
+      const separated=Math.abs(fast[i]-slow[i])>=vol[i]*s.minimumSeparationATR;
+      const touched=c.low<=top&&c.high>=bottom;
+      const bReturn=bullish&&touched,bReturnBear=bearish&&touched;
+      const bReject=bReturn&&c.close>top&&c.close>c.open;
+      const sReject=bReturnBear&&c.close<bottom&&c.close<c.open;
+      if(bReturn)lastBullReturn=i;if(bReturnBear)lastBearReturn=i;
+      if(bReject){lastBullReject=i;bullLow=c.low;}
+      if(sReject){lastBearReject=i;bearHigh=c.high;}
+      if(i>=s.liquidityLength){
+        let hi=-Infinity,lo=Infinity;
+        for(let j=i-s.liquidityLength;j<i;j++){hi=Math.max(hi,candles[j].high);lo=Math.min(lo,candles[j].low);}
+        if(c.low<lo&&c.close>lo)sweeps.push({index:i,time:c.time,direction:"BUY"});
+        if(c.high>hi&&c.close<hi)sweeps.push({index:i,time:c.time,direction:"SELL"});
+      }
+      const closeTime=parseTime(c.time)+INTERVAL;
+      const m15=rangeAt(candles,vol,i,s),r1=latestCompletedRange(h1,closeTime),r4=latestCompletedRange(h4,closeTime);
+      const buffer=vol[i]*s.supplyDemandBufferATR;
+      const buyBlocked=nearSupply(c.close,m15,buffer)||nearSupply(c.close,r1,buffer)||nearSupply(c.close,r4,buffer);
+      const sellBlocked=nearDemand(c.close,m15,buffer)||nearDemand(c.close,r1,buffer)||nearDemand(c.close,r4,buffer);
+      const freshBuy=lastExit<0||(lastBullReturn>lastExit&&lastBullReject>lastExit);
+      const freshSell=lastExit<0||(lastBearReturn>lastExit&&lastBearReject>lastExit);
+      const buyCandidate=bullish&&up&&separated&&i-lastBullReturn<=s.zoneLookback&&i-lastBullReject<=s.zoneLookback&&bullEngulf(p,c)&&c.close>top&&freshBuy;
+      const sellCandidate=bearish&&down&&separated&&i-lastBearReturn<=s.zoneLookback&&i-lastBearReject<=s.zoneLookback&&bearEngulf(p,c)&&c.close<bottom&&freshSell;
+      if(buyCandidate)diagnostics.bullishCandidates++;
+      if(sellCandidate)diagnostics.bearishCandidates++;
+      if(buyCandidate&&buyBlocked)diagnostics.blockedBySupply++;
+      if(sellCandidate&&sellBlocked)diagnostics.blockedByDemand++;
+      const buy=buyCandidate&&!buyBlocked,sell=sellCandidate&&!sellBlocked;
+      const confirmedBuy=buy&&!prevBuy&&!trade&&!closed;
+      const confirmedSell=sell&&!prevSell&&!trade&&!closed;
+      if((buy||sell)&&trade)diagnostics.blockedByTradeState++;
+      prevBuy=buy;prevSell=sell;
+      if(!confirmedBuy&&!confirmedSell)continue;
+      const direction=confirmedBuy?"BUY":"SELL",entry=c.close;
+      const stop=direction==="BUY"?Math.min(bullLow-vol[i]*s.stopBufferATR,c.low-vol[i]*s.stopBufferATR):Math.max(bearHigh+vol[i]*s.stopBufferATR,c.high+vol[i]*s.stopBufferATR);
+      const risk=Math.abs(entry-stop);
+      if(!(risk>s.minTick))continue;
+      const sign=direction==="BUY"?1:-1;
+      trade={signalIndex:i,signalTime:c.time,direction,entry,sl:stop,tp1:entry+sign*risk,tp2:entry+sign*risk*2,riskDistance:risk,exitIndex:null,exitTime:null,exitReason:null,exitPrice:null};
+      signals.push({index:i,time:c.time,symbol:options.symbol||"EURUSD",direction,entryReference:entry,ema20:fast[i],ema50:slow[i],atr:vol[i],sl:stop,tp1:trade.tp1,tp2:trade.tp2,reason:"Pine v6.1 EMA/rejection/engulfing + M15/H1/H4 S/D protection; TP2 exit"});
+      diagnostics.confirmedSignals++;
+    }
+    return {version:"3.3",mode:"SIGNALS_ONLY",executionModel:"SIGNAL_CLOSE_REFERENCE",candlesProcessed:candles.length,signalCount:signals.length,signals,sweeps,trades,openTrade:trade,diagnostics,indicators:{ema20:fast,ema50:slow,atr:vol}};
+  }
+  global.RMStrategy={version:"3.3",settings:DEFAULTS,ema,atr,aggregateCandles,analyze};
+})(window);
