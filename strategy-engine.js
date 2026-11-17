@@ -505,3 +505,130 @@
   };
 
 })(window);
+/*
+ RM Trading Academy PRO v3.1
+ Multi-Timeframe Supply & Demand Module
+
+ Research and simulation only.
+ No broker orders.
+*/
+
+(function (global) {
+  "use strict";
+
+  function parseTime(value) {
+    if (typeof value === "number") return value;
+
+    const normalized = String(value)
+      .trim()
+      .replace(" ", "T");
+
+    const timestamp = Date.parse(
+      /Z$|[+-]\d\d:\d\d$/.test(normalized)
+        ? normalized
+        : normalized + "Z"
+    );
+
+    if (!Number.isFinite(timestamp)) {
+      throw new Error("Invalid candle timestamp: " + value);
+    }
+
+    return timestamp;
+  }
+
+  function aggregateCandles(candles, minutes) {
+    const interval = minutes * 60000;
+    const groups = [];
+
+    for (const candle of candles) {
+      const timestamp = parseTime(candle.time);
+      const bucket = Math.floor(timestamp / interval) * interval;
+
+      let group = groups[groups.length - 1];
+
+      if (!group || group.bucket !== bucket) {
+        group = {
+          bucket,
+          time: new Date(bucket).toISOString(),
+          open: Number(candle.open),
+          high: Number(candle.high),
+          low: Number(candle.low),
+          close: Number(candle.close),
+          count: 0
+        };
+        groups.push(group);
+      }
+
+      group.high = Math.max(group.high, Number(candle.high));
+      group.low = Math.min(group.low, Number(candle.low));
+      group.close = Number(candle.close);
+      group.count++;
+    }
+
+    return groups;
+  }
+
+  function findZones(candles, lookback = 20) {
+    if (candles.length < lookback) {
+      return null;
+    }
+
+    const recent = candles.slice(-lookback);
+
+    const highest = Math.max(...recent.map(c => c.high));
+    const lowest = Math.min(...recent.map(c => c.low));
+
+    const range = highest - lowest;
+
+    return {
+      demand: {
+        low: lowest,
+        high: lowest + range * 0.15
+      },
+      supply: {
+        low: highest - range * 0.15,
+        high: highest
+      }
+    };
+  }
+
+  function analyzeMTF(candles, signalIndex, lookback = 20) {
+    if (!Array.isArray(candles)) {
+      throw new Error("Candles must be an array.");
+    }
+
+    if (
+      !Number.isInteger(signalIndex) ||
+      signalIndex < 0 ||
+      signalIndex >= candles.length
+    ) {
+      throw new Error("Invalid signal index.");
+    }
+
+    // Only candles completed before the signal candle.
+    const history = candles.slice(0, signalIndex);
+    const signalTime = parseTime(candles[signalIndex].time);
+
+    const h1 = aggregateCandles(history, 60)
+      .filter(c => c.bucket + 3600000 <= signalTime);
+
+    const h4 = aggregateCandles(history, 240)
+      .filter(c => c.bucket + 14400000 <= signalTime);
+
+    return {
+      version: "3.1",
+      m15: findZones(history, lookback),
+      h1: findZones(h1, lookback),
+      h4: findZones(h4, lookback)
+    };
+  }
+
+  global.RMMTF = {
+    version: "3.1",
+    aggregateCandles,
+    findZones,
+    analyzeMTF
+  };
+
+})(window);
+
