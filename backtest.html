@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RM Trading Academy | PRO v3.1 Backtester</title>
+<title>RM Trading Academy | PRO Backtester</title>
 <style>
 :root{font-family:Inter,system-ui,Arial,sans-serif;color-scheme:dark}
 *{box-sizing:border-box}
@@ -13,7 +13,7 @@ h1{font-size:clamp(24px,4vw,36px)}
 h2{font-size:21px}
 section{background:#151d32;border:1px solid #35415c;padding:22px;border-radius:15px;margin:18px 0}
 input,button,select{background:#243454;color:white;border:1px solid #596783;border-radius:8px;padding:11px;max-width:100%}
-input[type=number]{width:105px}
+input[type=number]{width:110px}
 input[type=checkbox]{width:19px;height:19px;vertical-align:middle}
 button{cursor:pointer}
 button.primary{background:#3269ef;border-color:#3269ef}
@@ -21,44 +21,49 @@ label{display:inline-block;margin:8px 12px 8px 0}
 a{color:#8db6ff}
 .warn{color:#f5c879}
 .muted{color:#a8b6d0}
+.good{color:#4dd8a4}
+.bad{color:#ff8d9d}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
 .card{background:#202b45;border:1px solid #40506e;border-radius:12px;padding:16px}
 .card strong{display:block;font-size:23px;margin-top:7px}
 table{border-collapse:collapse;width:100%;font-size:13px}
 td,th{padding:10px;border-bottom:1px solid #35415c;text-align:left;white-space:nowrap}
 .tablewrap{overflow:auto}
-.good{color:#4dd8a4}
-.bad{color:#ff8d9d}
 #msg{min-height:22px;white-space:pre-wrap}
+.hidden{display:none}
+hr{border:0;border-top:1px solid #35415c;margin:20px 0}
 </style>
 </head>
 <body>
 
-<h1>RM Trading Academy — PRO v3.1</h1>
+<h1>RM Trading Academy — PRO Backtester</h1>
 <p><a href="index.html">← Dashboard</a></p>
 
 <section>
-<h2>Strategy Engine — Multi-Timeframe Comparison</h2>
-<p class="warn">
-Research prototype only. EMA20/50, EMA-zone return and
-engulfing signals come from strategy-engine.js.
-Supply/demand and liquidity filters are experimental
-approximations, not exact Pine v6.1 logic.
-No live prices or broker orders.
+<h2>Strategy Engine</h2>
+<label>Choose strategy version
+<select id="engine">
+<option value="v31">v3.1 — Experimental Baseline</option>
+<option value="v32" selected>v3.2 — Pine v6.1 Reference</option>
+</select>
+</label>
+<p id="engineDescription" class="warn"></p>
+<p class="muted">
+Historical research only. No live prices, broker
+connections or automatic trading.
 </p>
 </section>
 
 <section>
 <h2>1. Historical Market Data</h2>
 <p>
-Upload chronological M15 OHLC candles.
-Required CSV headers:
+Upload chronological M15 OHLC candles with CSV headers:
 <code>time,open,high,low,close</code>.
-Minimum 100 candles.
 </p>
 <p class="muted">
-Timestamps must represent UTC candle opening times.
-Use a continuous, correctly ordered M15 dataset.
+Timestamps must be UTC candle opening times,
+aligned to 15-minute boundaries. Minimum 100 candles.
+Longer datasets are recommended for H4 calculations.
 </p>
 <input type="file" id="file" accept=".csv,text/csv">
 </section>
@@ -74,36 +79,35 @@ Use a continuous, correctly ordered M15 dataset.
 <input id="risk" type="number" value="1" min="0.1" max="2" step="0.1">
 </label>
 
-<label>Reward / Risk
-<input id="rr" type="number" value="2" min="1" max="5" step="0.5">
-</label>
-
 <label>Spread (price units)
 <input id="spread" type="number" value="0.00015" min="0" step="0.00001">
 </label>
 
+<div id="legacyRR">
+<label>Reward / Risk — v3.1
+<input id="rr" type="number" value="2" min="1" max="5" step="0.5">
+</label>
+</div>
+
+<p class="muted" id="riskDescription"></p>
 </section>
 
-<section>
-<h2>3. Strategy Filters</h2>
+<section id="legacyFilters">
+<h2>3. Experimental v3.1 Filters</h2>
 
 <label>
 <input type="checkbox" id="sd">
-Require original M15 Supply / Demand confirmation
+Require M15 Supply / Demand confirmation
 </label>
+
 <p class="muted">
-Original experimental proxy using the previous candles,
-recent highs/lows and an ATR buffer.
+Experimental recent-high/low filter.
 </p>
 
 <label>
 <input type="checkbox" id="liq">
 Require Liquidity Sweep confirmation
 </label>
-<p class="muted">
-BUY: wick below a recent low and close above it.
-SELL: wick above a recent high and close below it.
-</p>
 
 <label>Supply / Demand lookback
 <input id="sdlook" type="number" value="20" min="5" max="100">
@@ -115,57 +119,78 @@ SELL: wick above a recent high and close below it.
 
 <hr>
 
-<h2>Multi-Timeframe Supply & Demand v3.1</h2>
+<h2>Multi-Timeframe Confirmation</h2>
 
 <label>
 <input type="checkbox" id="mtf">
-Require multi-timeframe zone confirmation
+Require MTF zone confirmation
 </label>
 
-<p class="muted">
-Uses historical-range supply/demand zones derived from
-completed candles. This is a research approximation,
-not pivot-based institutional supply/demand detection.
-</p>
-
-<label>Confirmation timeframe
+<label>Timeframe
 <select id="mtftimeframe">
 <option value="m15">M15 only</option>
 <option value="h1">H1 only</option>
 <option value="h4">H4 only</option>
-<option value="any">Any of M15 / H1 / H4</option>
+<option value="any">Any M15 / H1 / H4</option>
 <option value="all">All M15 / H1 / H4</option>
 </select>
 </label>
 
-<label>MTF zone lookback
+<label>MTF lookback
 <input id="mtflook" type="number" value="20" min="5" max="100">
 </label>
 
 <p class="muted">
-For H4, a 20-candle lookback requires approximately
-80 hours of completed H4 history, plus signal warmup.
-The MTF filter is OFF by default.
+These are the original v3.1 experimental filters.
+They are not part of Pine v6.1 entry logic.
 </p>
+</section>
 
+<section id="pineInfo">
+<h2>3. Pine v6.1 Strategy Rules</h2>
+<p>
+The v3.2 engine applies the following rules internally:
+</p>
+<ul>
+<li>EMA 20 / EMA 50 trend, slope and separation</li>
+<li>Recent EMA-zone return and rejection</li>
+<li>Bullish or bearish engulfing confirmation</li>
+<li>M15, H1 and H4 supply/demand entry protection</li>
+<li>Fresh-setup and active-trade restrictions</li>
+<li>Rejection-based stop-loss and 1R / 2R / 3R targets</li>
+</ul>
+<p class="muted">
+Liquidity sweeps are recorded for diagnostics,
+but are not mandatory entry conditions in Pine v6.1.
+</p>
+</section>
+
+<section>
 <button class="primary" id="run">
-Run Strategy Comparison
+Run Backtest
 </button>
-
 <p id="msg" role="status"></p>
 </section>
 
 <section>
-<h2>4. Performance Comparison</h2>
+<h2>4. Performance</h2>
 <div id="comparison" class="cards">
-<div class="card">Upload a CSV and run the comparison.</div>
+<div class="card">Upload a CSV to begin.</div>
 </div>
 </section>
 
 <section>
-<h2>5. Trade Journal</h2>
-<p id="summary" class="muted">No backtest results yet.</p>
+<h2>5. Signal Diagnostics</h2>
+<div id="diagnostics" class="cards">
+<div class="card">No diagnostics yet.</div>
+</div>
+</section>
 
+<section>
+<h2>6. Trade Journal</h2>
+<p id="summary" class="muted">
+No backtest results yet.
+</p>
 <div class="tablewrap">
 <table>
 <thead>
@@ -173,6 +198,8 @@ Run Strategy Comparison
 <th>Entry time</th>
 <th>Side</th>
 <th>Entry</th>
+<th>SL</th>
+<th>TP</th>
 <th>Exit time</th>
 <th>Exit</th>
 <th>Outcome</th>
@@ -184,45 +211,81 @@ Run Strategy Comparison
 </div>
 </section>
 
+<!-- Load and retain both engines separately. -->
 <script src="./strategy-engine.js"></script>
+<script>
+window.RMStrategyV31 = window.RMStrategy;
+</script>
+
+<script src="./strategy-engine-v3.2.js"></script>
+<script>
+window.RMStrategyV32 = window.RMStrategy;
+</script>
+
 <script>
 "use strict";
 
 const $ = id => document.getElementById(id);
-const money = n => "$" + n.toFixed(2);
+const money = n => "$" + Number(n).toFixed(2);
 const price = n => Number(n).toFixed(5);
 
-function parseCSV(text) {
-  const lines = text.replace(/\r/g,"").trim().split("\n");
+function parseTimestamp(value) {
+  if (typeof value === "number") return value;
 
-  const header = lines.shift().split(",").map(
-    x => x.trim().replace(/^"|"$/g,"").toLowerCase()
+  const normalized = String(value)
+    .trim()
+    .replace(" ", "T");
+
+  const timestamp = Date.parse(
+    /Z$|[+-]\d\d:\d\d$/.test(normalized)
+      ? normalized
+      : normalized + "Z"
   );
+
+  if (!Number.isFinite(timestamp)) {
+    throw Error("Invalid timestamp: " + value);
+  }
+
+  return timestamp;
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/\r/g,"")
+    .trim().split("\n");
+
+  const header = lines.shift().split(",")
+    .map(x => x.trim()
+      .replace(/^"|"$/g,"").toLowerCase());
 
   const keys = ["time","open","high","low","close"];
   const indexes = keys.map(k => header.indexOf(k));
 
   if (indexes.some(i => i < 0)) {
-    throw Error("CSV needs time,open,high,low,close columns.");
+    throw Error(
+      "CSV needs time,open,high,low,close columns."
+    );
   }
 
-  const candles = lines.filter(x => x.trim()).map(line => {
-    const v = line.split(",");
+  const candles = lines.filter(x => x.trim())
+    .map(line => {
+      const v = line.split(",");
 
-    return {
-      time:v[indexes[0]].trim().replace(/^"|"$/g,""),
-      open:Number(v[indexes[1]]),
-      high:Number(v[indexes[2]]),
-      low:Number(v[indexes[3]]),
-      close:Number(v[indexes[4]])
-    };
-  });
+      return {
+        time:v[indexes[0]].trim()
+          .replace(/^"|"$/g,""),
+        open:Number(v[indexes[1]]),
+        high:Number(v[indexes[2]]),
+        low:Number(v[indexes[3]]),
+        close:Number(v[indexes[4]])
+      };
+    });
 
   let lastTime = -Infinity;
 
   for (const c of candles) {
     if (!c.time ||
-        ![c.open,c.high,c.low,c.close].every(Number.isFinite) ||
+        ![c.open,c.high,c.low,c.close]
+          .every(Number.isFinite) ||
         c.high < Math.max(c.open,c.close) ||
         c.low > Math.min(c.open,c.close) ||
         c.high < c.low) {
@@ -239,7 +302,7 @@ function parseCSV(text) {
 
     if (timestamp % 900000 !== 0) {
       throw Error(
-        "M15 candle timestamps must align to 15-minute UTC boundaries."
+        "M15 timestamps must align to UTC 15-minute boundaries."
       );
     }
 
@@ -251,26 +314,6 @@ function parseCSV(text) {
   }
 
   return candles;
-}
-
-function parseTimestamp(value) {
-  if (typeof value === "number") return value;
-
-  const normalized = String(value)
-    .trim()
-    .replace(" ","T");
-
-  const timestamp = Date.parse(
-    /Z$|[+-]\d\d:\d\d$/.test(normalized)
-      ? normalized
-      : normalized + "Z"
-  );
-
-  if (!Number.isFinite(timestamp)) {
-    throw Error("Invalid timestamp: " + value);
-  }
-
-  return timestamp;
 }
 
 function supplyDemandFilter(candles,signal,atrValues,lookback) {
@@ -285,11 +328,11 @@ function supplyDemandFilter(candles,signal,atrValues,lookback) {
 
   if (signal.direction === "BUY") {
     return current.low <= lowest + buffer &&
-           current.close > lowest;
+      current.close > lowest;
   }
 
   return current.high >= highest - buffer &&
-         current.close < highest;
+    current.close < highest;
 }
 
 function liquidityFilter(candles,signal,lookback) {
@@ -303,19 +346,18 @@ function liquidityFilter(candles,signal,lookback) {
 
   if (signal.direction === "BUY") {
     return current.low < lowest &&
-           current.close > lowest;
+      current.close > lowest;
   }
 
   return current.high > highest &&
-         current.close < highest;
+    current.close < highest;
 }
 
 function zoneMatches(candle,direction,zone) {
   if (!zone) return false;
 
   const selected = direction === "BUY"
-    ? zone.demand
-    : zone.supply;
+    ? zone.demand : zone.supply;
 
   if (!selected) return false;
 
@@ -323,10 +365,9 @@ function zoneMatches(candle,direction,zone) {
     candle.high >= selected.low &&
     candle.low <= selected.high;
 
-  const rejected =
-    direction === "BUY"
-      ? candle.close > selected.high
-      : candle.close < selected.low;
+  const rejected = direction === "BUY"
+    ? candle.close > selected.high
+    : candle.close < selected.low;
 
   return overlaps && rejected;
 }
@@ -334,9 +375,7 @@ function zoneMatches(candle,direction,zone) {
 function mtfFilter(candles,signal,lookback,timeframe) {
   if (!window.RMMTF ||
       typeof window.RMMTF.analyzeMTF !== "function") {
-    throw Error(
-      "RMMTF module missing. Check the v3.1 code in strategy-engine.js."
-    );
+    throw Error("The v3.1 MTF module did not load.");
   }
 
   const zones = window.RMMTF.analyzeMTF(
@@ -362,7 +401,34 @@ function mtfFilter(candles,signal,lookback,timeframe) {
   return matches[timeframe] === true;
 }
 
-function simulate(candles,signals,settings,atrValues) {
+function getSettings() {
+  const settings = {
+    balance:Number($("balance").value),
+    risk:Number($("risk").value),
+    rr:Number($("rr").value),
+    spread:Number($("spread").value)
+  };
+
+  if (!(settings.balance >= 100 &&
+        settings.risk >= 0.1 &&
+        settings.risk <= 2 &&
+        settings.rr >= 1 &&
+        settings.rr <= 5 &&
+        settings.spread >= 0)) {
+    throw Error(
+      "Check balance, risk, reward/risk and spread."
+    );
+  }
+
+  return settings;
+}
+
+/*
+ v3.1 simulator:
+ Original next-open execution, ATR-based SL,
+ configurable RR and SL-first assumptions.
+*/
+function simulateV31(candles,signals,settings,atrValues) {
   let balance = settings.balance;
   let peak = balance;
   let maxDD = 0;
@@ -371,47 +437,49 @@ function simulate(candles,signals,settings,atrValues) {
   const trades = [];
   const byIndex = new Map(signals.map(s => [s.index,s]));
 
+  function closePosition(candle,hitSL) {
+    const p = position;
+    const exit = hitSL ? p.sl : p.tp;
+    const profit = hitSL
+      ? -p.riskAmount
+      : p.riskAmount * settings.rr;
+
+    balance += profit;
+    peak = Math.max(peak,balance);
+    maxDD = Math.max(
+      maxDD,(peak-balance)/peak*100
+    );
+
+    trades.push({
+      ...p,
+      exit,
+      exitTime:candle.time,
+      outcome:hitSL ? "SL" : "TP",
+      profit
+    });
+
+    position = null;
+  }
+
   for (let i=0;i<candles.length;i++) {
     const candle = candles[i];
 
     if (position) {
-      const p = position;
+      const hitSL = position.side === "BUY"
+        ? candle.low <= position.sl
+        : candle.high >= position.sl;
 
-      const hitSL = p.side === "BUY"
-        ? candle.low <= p.sl
-        : candle.high >= p.sl;
-
-      const hitTP = p.side === "BUY"
-        ? candle.high >= p.tp
-        : candle.low <= p.tp;
+      const hitTP = position.side === "BUY"
+        ? candle.high >= position.tp
+        : candle.low <= position.tp;
 
       if (hitSL || hitTP) {
-        const outcome = hitSL ? "SL" : "TP";
-        const exit = hitSL ? p.sl : p.tp;
-        const profit = hitSL
-          ? -p.riskAmount
-          : p.riskAmount * settings.rr;
-
-        balance += profit;
-        peak = Math.max(peak,balance);
-        maxDD = Math.max(maxDD,(peak-balance)/peak*100);
-
-        trades.push({
-          ...p,
-          exit,
-          exitTime:candle.time,
-          outcome,
-          profit
-        });
-
-        position = null;
+        closePosition(candle,hitSL);
       }
 
       continue;
     }
 
-    // Confirm signal at previous candle close.
-    // Enter at next candle open.
     const signal = byIndex.get(i-1);
     if (!signal) continue;
 
@@ -419,7 +487,6 @@ function simulate(candles,signals,settings,atrValues) {
     if (!(atr > 0)) continue;
 
     const side = signal.direction;
-
     const entry = candle.open +
       (side === "BUY"
         ? settings.spread/2
@@ -427,21 +494,17 @@ function simulate(candles,signals,settings,atrValues) {
 
     const distance = atr*1.5 + settings.spread;
     const riskAmount = balance*settings.risk/100;
+    const sign = side === "BUY" ? 1 : -1;
 
     position = {
       time:candle.time,
       side,
       entry,
-      sl:side === "BUY"
-        ? entry-distance
-        : entry+distance,
-      tp:side === "BUY"
-        ? entry+distance*settings.rr
-        : entry-distance*settings.rr,
+      sl:entry-sign*distance,
+      tp:entry+sign*distance*settings.rr,
       riskAmount
     };
 
-    // Check entry candle too.
     const hitSL = side === "BUY"
       ? candle.low <= position.sl
       : candle.high >= position.sl;
@@ -451,41 +514,157 @@ function simulate(candles,signals,settings,atrValues) {
       : candle.low <= position.tp;
 
     if (hitSL || hitTP) {
-      const outcome = hitSL ? "SL" : "TP";
-      const exit = hitSL ? position.sl : position.tp;
-
-      const profit = hitSL
-        ? -riskAmount
-        : riskAmount*settings.rr;
-
-      balance += profit;
-      peak = Math.max(peak,balance);
-      maxDD = Math.max(maxDD,(peak-balance)/peak*100);
-
-      trades.push({
-        ...position,
-        exit,
-        exitTime:candle.time,
-        outcome,
-        profit
-      });
-
-      position = null;
+      closePosition(candle,hitSL);
     }
   }
 
+  return finishResult(
+    balance,settings.balance,trades,maxDD,!!position
+  );
+}
+
+/*
+ v3.2 financial simulator:
+
+ Signals and protective levels come from v3.2.
+ Fill is modeled at the next candle's open.
+ SL remains at the signal engine's original level.
+ TP3 is the only modeled profit exit.
+
+ TP1/TP2 are informational, not partial exits.
+
+ If entry gaps past the protective stop,
+ the trade is skipped and counted separately.
+
+ Intrabar SL/TP3 collisions assume SL first.
+ This is not tick-accurate execution.
+*/
+function simulateV32(candles,signals,settings) {
+  let balance = settings.balance;
+  let peak = balance;
+  let maxDD = 0;
+  let position = null;
+  let skippedEntries = 0;
+
+  const trades = [];
+  const byIndex = new Map(signals.map(s => [s.index,s]));
+
+  function closePosition(candle,hitSL) {
+    const p = position;
+
+    const exit = hitSL ? p.sl : p.tp;
+    const profit = hitSL
+      ? -p.riskAmount
+      : p.riskAmount *
+        (Math.abs(p.tp-p.entry) /
+         Math.abs(p.entry-p.sl));
+
+    balance += profit;
+    peak = Math.max(peak,balance);
+    maxDD = Math.max(
+      maxDD,(peak-balance)/peak*100
+    );
+
+    trades.push({
+      ...p,
+      exit,
+      exitTime:candle.time,
+      outcome:hitSL ? "SL" : "TP3",
+      profit
+    });
+
+    position = null;
+  }
+
+  for (let i=0;i<candles.length;i++) {
+    const candle = candles[i];
+
+    if (position) {
+      const hitSL = position.side === "BUY"
+        ? candle.low <= position.sl
+        : candle.high >= position.sl;
+
+      const hitTP = position.side === "BUY"
+        ? candle.high >= position.tp
+        : candle.low <= position.tp;
+
+      if (hitSL || hitTP) {
+        closePosition(candle,hitSL);
+      }
+
+      continue;
+    }
+
+    if (i === 0) continue;
+
+    const signal = byIndex.get(i-1);
+    if (!signal) continue;
+
+    const side = signal.direction;
+    const sign = side === "BUY" ? 1 : -1;
+
+    const entry = candle.open +
+      sign*settings.spread/2;
+
+    const sl = Number(signal.sl);
+    const tp = Number(signal.tp3);
+
+    if (![entry,sl,tp].every(Number.isFinite) ||
+        sign*(entry-sl) <= 0 ||
+        sign*(tp-entry) <= 0) {
+      skippedEntries++;
+      continue;
+    }
+
+    const riskAmount = balance*settings.risk/100;
+
+    position = {
+      time:candle.time,
+      signalTime:signal.time,
+      side,
+      entry,
+      sl,
+      tp,
+      tp1:signal.tp1,
+      tp2:signal.tp2,
+      riskAmount
+    };
+
+    const hitSL = side === "BUY"
+      ? candle.low <= sl
+      : candle.high >= sl;
+
+    const hitTP = side === "BUY"
+      ? candle.high >= tp
+      : candle.low <= tp;
+
+    if (hitSL || hitTP) {
+      closePosition(candle,hitSL);
+    }
+  }
+
+  return {
+    ...finishResult(
+      balance,settings.balance,trades,maxDD,!!position
+    ),
+    skippedEntries
+  };
+}
+
+function finishResult(
+  balance,startingBalance,trades,maxDD,open
+) {
   const wins = trades.filter(t => t.profit > 0).length;
 
   return {
     balance,
-    net:balance-settings.balance,
+    net:balance-startingBalance,
     trades,
     wins,
     winRate:trades.length
-      ? wins/trades.length*100
-      : 0,
+      ? wins/trades.length*100 : 0,
     drawdown:maxDD,
-    open:!!position
+    open
   };
 }
 
@@ -502,19 +681,23 @@ function metricCard(label,value,detail) {
 
   const small = document.createElement("span");
   small.className = "muted";
-  small.textContent = detail;
+  small.textContent = detail || "";
 
   div.append(name,strong,small);
   return div;
 }
 
-function renderComparison(
-  baseline,filtered,baseCount,filteredCount
-) {
-  const root = $("comparison");
+function renderMetrics(items,target) {
+  const root = $(target);
   root.replaceChildren();
 
-  const items = [
+  for (const item of items) {
+    root.append(metricCard(...item));
+  }
+}
+
+function renderV31(baseline,filtered,baseCount,filteredCount) {
+  renderMetrics([
     ["Baseline signals",String(baseCount),
       "Without optional filters"],
     ["Filtered signals",String(filteredCount),
@@ -524,18 +707,73 @@ function renderComparison(
     ["Filtered trades",String(filtered.trades.length),
       filtered.winRate.toFixed(1)+"% win rate"],
     ["Baseline net P&L",money(baseline.net),
-      "Ending balance "+money(baseline.balance)],
+      "Ending "+money(baseline.balance)],
     ["Filtered net P&L",money(filtered.net),
-      "Ending balance "+money(filtered.balance)],
-    ["Baseline drawdown",baseline.drawdown.toFixed(2)+"%",
+      "Ending "+money(filtered.balance)],
+    ["Baseline drawdown",
+      baseline.drawdown.toFixed(2)+"%",
       "Closed-equity drawdown"],
-    ["Filtered drawdown",filtered.drawdown.toFixed(2)+"%",
+    ["Filtered drawdown",
+      filtered.drawdown.toFixed(2)+"%",
       "Closed-equity drawdown"]
-  ];
+  ],"comparison");
 
-  for (const item of items) {
-    root.append(metricCard(...item));
-  }
+  renderMetrics([
+    ["Engine","v3.1","Experimental filters"],
+    ["MTF filter",$("mtf").checked
+      ? $("mtftimeframe").value.toUpperCase()
+      : "OFF","Optional confirmation"]
+  ],"diagnostics");
+
+  renderTrades(filtered);
+}
+
+function renderV32(result,analysis) {
+  const d = analysis.diagnostics || {};
+
+  renderMetrics([
+    ["Confirmed signals",String(analysis.signalCount),
+      "Pine-style signal engine"],
+    ["Closed trades",String(result.trades.length),
+      "Next-open fill simulation"],
+    ["Win rate",result.winRate.toFixed(1)+"%",
+      "Closed simulated trades"],
+    ["Net P&L",money(result.net),
+      "Excludes open unrealized P&L"],
+    ["Ending balance",money(result.balance),
+      "Starting balance plus closed P&L"],
+    ["Max drawdown",
+      result.drawdown.toFixed(2)+"%",
+      "Closed-equity drawdown"],
+    ["Skipped entries",
+      String(result.skippedEntries || 0),
+      "Invalid next-open entry geometry"],
+    ["Open position",result.open ? "YES" : "NO",
+      "Excluded from realized P&L"]
+  ],"comparison");
+
+  renderMetrics([
+    ["Bars evaluated",String(d.barsChecked ?? 0),
+      "After indicator warmup"],
+    ["BUY candidates",String(d.bullishCandidates ?? 0),
+      "Before supply protection"],
+    ["SELL candidates",String(d.bearishCandidates ?? 0),
+      "Before demand protection"],
+    ["Blocked BUY",String(d.blockedBySupply ?? 0),
+      "Supply-zone protection"],
+    ["Blocked SELL",String(d.blockedByDemand ?? 0),
+      "Demand-zone protection"],
+    ["Trade-state blocks",
+      String(d.blockedByTradeState ?? 0),
+      "Active-position restriction"],
+    ["Liquidity sweeps",
+      String(analysis.sweeps?.length || 0),
+      "Informational, not required"],
+    ["Engine version",analysis.version,
+      "Pine v6.1 reference implementation"]
+  ],"diagnostics");
+
+  renderTrades(result);
 }
 
 function renderTrades(result) {
@@ -548,10 +786,12 @@ function renderTrades(result) {
       t.time,
       t.side,
       price(t.entry),
+      price(t.sl),
+      price(t.tp),
       t.exitTime,
       price(t.exit),
       t.outcome,
-      t.profit.toFixed(2)
+      money(t.profit)
     ];
 
     for (const value of values) {
@@ -573,101 +813,136 @@ function renderTrades(result) {
       : "");
 }
 
+function updateEngineUI() {
+  const isV32 = $("engine").value === "v32";
+
+  $("legacyFilters").classList.toggle("hidden",isV32);
+  $("legacyRR").classList.toggle("hidden",isV32);
+  $("pineInfo").classList.toggle("hidden",!isV32);
+
+  $("engineDescription").textContent = isV32
+    ? "v3.2: Pine v6.1 signal reference with M15/H1/H4 supply-demand protection."
+    : "v3.1: Original EMA signals and experimental optional filters.";
+
+  $("riskDescription").textContent = isV32
+    ? "v3.2 uses the Pine rejection-based SL and TP3. TP1/TP2 are informational only. The RR control is not used."
+    : "v3.1 uses an ATR-based stop and the selected reward/risk ratio.";
+}
+
+$("engine").addEventListener("change",updateEngineUI);
+updateEngineUI();
+
 $("run").onclick = async () => {
   try {
-    $("msg").textContent = "Running comparison...";
-
-    if (!window.RMStrategy ||
-        typeof window.RMStrategy.analyze !== "function") {
-      throw Error("strategy-engine.js did not load.");
-    }
+    $("msg").textContent = "Running backtest...";
 
     const file = $("file").files[0];
     if (!file) throw Error("Choose a CSV file first.");
 
     const candles = parseCSV(await file.text());
+    const settings = getSettings();
+    const version = $("engine").value;
 
-    const settings = {
-      balance:Number($("balance").value),
-      risk:Number($("risk").value),
-      rr:Number($("rr").value),
-      spread:Number($("spread").value)
-    };
+    if (version === "v32") {
+      const engine = window.RMStrategyV32;
 
-    if (!(settings.balance>=100 &&
-          settings.risk>=0.1 &&
-          settings.risk<=2 &&
-          settings.rr>=1 &&
-          settings.rr<=5 &&
-          settings.spread>=0)) {
-      throw Error(
-        "Check balance, risk, reward/risk and spread."
+      if (!engine ||
+          engine.version !== "3.2" ||
+          typeof engine.analyze !== "function") {
+        throw Error(
+          "v3.2 engine not loaded. Check strategy-engine-v3.2.js."
+        );
+      }
+
+      const analysis = engine.analyze(candles);
+      const result = simulateV32(
+        candles,analysis.signals,settings
       );
+
+      renderV32(result,analysis);
+
+      $("msg").textContent =
+        "v3.2 completed: "+candles.length+
+        " candles processed.\n"+
+        "Signal engine: Pine v6.1 reference.\n"+
+        "Financial simulation: next M15 candle open, "+
+        "fixed Pine-derived SL, TP3 exit only.\n"+
+        "TP1/TP2 are not partial exits. "+
+        "Same-bar SL/TP3 assumes SL first.\n"+
+        "No commissions, swaps, variable slippage "+
+        "or intrabar tick data.\n"+
+        "Engine trade state and simulated fills "+
+        "may diverge; results are not yet "+
+        "TradingView-parity verified.";
+
+    } else {
+      const engine = window.RMStrategyV31;
+
+      if (!engine ||
+          typeof engine.analyze !== "function") {
+        throw Error("v3.1 strategy engine did not load.");
+      }
+
+      const sdLook = Number($("sdlook").value);
+      const liqLook = Number($("liqlook").value);
+      const mtfLook = Number($("mtflook").value);
+      const timeframe = $("mtftimeframe").value;
+
+      if (!Number.isInteger(sdLook) ||
+          sdLook < 5 || sdLook > 100 ||
+          !Number.isInteger(liqLook) ||
+          liqLook < 2 || liqLook > 30 ||
+          !Number.isInteger(mtfLook) ||
+          mtfLook < 5 || mtfLook > 100) {
+        throw Error("Invalid filter lookback settings.");
+      }
+
+      const analysis = engine.analyze(candles);
+      const baselineSignals = analysis.signals;
+      const atrValues = analysis.indicators.atr;
+
+      const filteredSignals = baselineSignals.filter(signal => {
+        if ($("sd").checked &&
+            !supplyDemandFilter(
+              candles,signal,atrValues,sdLook
+            )) return false;
+
+        if ($("liq").checked &&
+            !liquidityFilter(
+              candles,signal,liqLook
+            )) return false;
+
+        if ($("mtf").checked &&
+            !mtfFilter(
+              candles,signal,mtfLook,timeframe
+            )) return false;
+
+        return true;
+      });
+
+      const baseline = simulateV31(
+        candles,baselineSignals,settings,atrValues
+      );
+
+      const filtered = simulateV31(
+        candles,filteredSignals,settings,atrValues
+      );
+
+      renderV31(
+        baseline,filtered,
+        baselineSignals.length,
+        filteredSignals.length
+      );
+
+      $("msg").textContent =
+        "v3.1 completed: "+candles.length+
+        " candles processed.\n"+
+        "MTF filter: "+($("mtf").checked
+          ? timeframe.toUpperCase() : "OFF")+".\n"+
+        "Journal shows filtered trades.\n"+
+        "Same-bar SL/TP assumes SL first. "+
+        "No commissions, swaps or variable slippage.";
     }
-
-    const sdLook = Number($("sdlook").value);
-    const liqLook = Number($("liqlook").value);
-    const mtfLook = Number($("mtflook").value);
-    const timeframe = $("mtftimeframe").value;
-
-    if (!Number.isInteger(sdLook) ||
-        sdLook<5 || sdLook>100 ||
-        !Number.isInteger(liqLook) ||
-        liqLook<2 || liqLook>30 ||
-        !Number.isInteger(mtfLook) ||
-        mtfLook<5 || mtfLook>100) {
-      throw Error("Invalid filter lookback settings.");
-    }
-
-    const analysis = window.RMStrategy.analyze(candles);
-    const baselineSignals = analysis.signals;
-    const atrValues = analysis.indicators.atr;
-
-    const filteredSignals = baselineSignals.filter(signal => {
-      if ($("sd").checked &&
-          !supplyDemandFilter(
-            candles,signal,atrValues,sdLook
-          )) return false;
-
-      if ($("liq").checked &&
-          !liquidityFilter(
-            candles,signal,liqLook
-          )) return false;
-
-      if ($("mtf").checked &&
-          !mtfFilter(
-            candles,signal,mtfLook,timeframe
-          )) return false;
-
-      return true;
-    });
-
-    const baseline = simulate(
-      candles,baselineSignals,settings,atrValues
-    );
-
-    const filtered = simulate(
-      candles,filteredSignals,settings,atrValues
-    );
-
-    renderComparison(
-      baseline,
-      filtered,
-      baselineSignals.length,
-      filteredSignals.length
-    );
-
-    renderTrades(filtered);
-
-    $("msg").textContent =
-      "Comparison complete: "+candles.length+
-      " candles processed.\n"+
-      "MTF filter: "+($("mtf").checked
-        ? timeframe.toUpperCase()
-        : "OFF")+".\n"+
-      "Trade journal shows filtered results.\n"+
-      "Same-bar SL/TP assumes SL first. "+
-      "No commissions, swaps or variable slippage modeled.";
 
   } catch(error) {
     $("msg").textContent = "Error: "+error.message;
