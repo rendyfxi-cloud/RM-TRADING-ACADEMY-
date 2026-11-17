@@ -1,12 +1,16 @@
 
 /*
  RM Trading Academy
- Strategy Engine v0.1
- EMA 20 / EMA 50 + EMA Zone + Engulfing
+ Strategy Engine v0.2
 
- Signals only. No broker orders.
- Historical candles must be oldest first.
- Each candle: {time, open, high, low, close}
+ EMA 20 / EMA 50
+ EMA Zone + Engulfing
+ Confirmed Supply / Demand
+ Liquidity Sweep Confirmation
+
+ Historical signals only.
+ No broker orders.
+ Candles must be oldest first.
 */
 
 (function (global) {
@@ -18,14 +22,27 @@
     slopeLookback: 3,
     zoneLookback: 5,
     minimumSeparationATR: 0.10,
-    atrLength: 14
+    atrLength: 14,
+
+    // New v0.2 filters
+    useSupplyDemand: false,
+    useLiquiditySweep: false,
+
+    swingLeft: 3,
+    swingRight: 3,
+    zoneWidthATR: 0.5,
+    maxZoneAge: 200,
+    liquidityLookback: 10,
+    liquidityMaxAge: 3
   };
 
   function ema(values, period) {
     const result = Array(values.length).fill(null);
+
     if (values.length < period) return result;
 
     let sum = 0;
+
     for (let i = 0; i < period; i++) {
       sum += values[i];
     }
@@ -39,6 +56,7 @@
       previous =
         values[i] * multiplier +
         previous * (1 - multiplier);
+
       result[i] = previous;
     }
 
@@ -63,6 +81,7 @@
     if (candles.length < period) return result;
 
     let sum = 0;
+
     for (let i = 0; i < period; i++) {
       sum += ranges[i];
     }
@@ -73,6 +92,7 @@
     for (let i = period; i < ranges.length; i++) {
       previous =
         (previous * (period - 1) + ranges[i]) / period;
+
       result[i] = previous;
     }
 
@@ -97,11 +117,116 @@
     );
   }
 
+  function confirmedSwingHigh(candles, index, left, right) {
+    const value = candles[index].high;
+
+    for (let j = index - left; j <= index + right; j++) {
+      if (j === index) continue;
+      if (candles[j].high >= value) return false;
+    }
+
+    return true;
+  }
+
+  function confirmedSwingLow(candles, index, left, right) {
+    const value = candles[index].low;
+
+    for (let j = index - left; j <= index + right; j++) {
+      if (j === index) continue;
+      if (candles[j].low <= value) return false;
+    }
+
+    return true;
+  }
+
+  function createZone(type, pivotIndex, confirmedIndex,
+                      candles, volatility, settings) {
+    const pivot = candles[pivotIndex];
+    const width =
+      volatility[pivotIndex] * settings.zoneWidthATR;
+
+    if (!(width > 0)) return null;
+
+    const price = type === "DEMAND"
+      ? pivot.low
+      : pivot.high;
+
+    return {
+      type,
+      pivotIndex,
+      confirmedIndex,
+      pivotTime: pivot.time,
+      low: type === "DEMAND" ? price : price - width,
+      high: type === "DEMAND" ? price + width : price,
+      invalidated: false
+    };
+  }
+
+  function touchesZone(candle, zone) {
+    return (
+      candle.low <= zone.high &&
+      candle.high >= zone.low
+    );
+  }
+
+  function findLiquiditySweeps(candles, index, settings) {
+    const lookback = settings.liquidityLookback;
+    const from = index - lookback;
+
+    if (from < 0) {
+      return { buy: false, sell: false };
+    }
+
+    let previousLow = Infinity;
+    let previousHigh = -Infinity;
+
+    for (let j = from; j < index; j++) {
+      previousLow = Math.min(
+        previousLow, candles[j].low
+      );
+
+      previousHigh = Math.max(
+        previousHigh, candles[j].high
+      );
+    }
+
+    const current = candles[index];
+
+    return {
+      buy:
+        current.low < previousLow &&
+        current.close > previousLow,
+
+      sell:
+        current.high > previousHigh &&
+        current.close < previousHigh
+    };
+  }
+
   function analyze(inputCandles, options = {}) {
     const settings = { ...DEFAULTS, ...options };
 
     if (!Array.isArray(inputCandles)) {
-      throw new Error("Candles must be an array.");
+      throw Error("Candles must be an array.");
+    }
+
+    const positiveIntegers = [
+      "fastLength", "slowLength", "slopeLookback",
+      "zoneLookback", "atrLength", "swingLeft",
+      "swingRight", "maxZoneAge",
+      "liquidityLookback", "liquidityMaxAge"
+    ];
+
+    for (const key of positiveIntegers) {
+      if (!Number.isInteger(settings[key]) ||
+          settings[key] < 1) {
+        throw Error("Invalid setting: " + key);
+      }
+    }
+
+    if (!(settings.zoneWidthATR > 0) ||
+        !(settings.minimumSeparationATR >= 0)) {
+      throw Error("Invalid ATR settings.");
     }
 
     const candles = inputCandles.map(c => ({
@@ -117,23 +242,32 @@
         ![c.open, c.high, c.low, c.close]
           .every(Number.isFinite) ||
         c.high < Math.max(c.open, c.close) ||
-        c.low > Math.min(c.open, c.close)
+        c.low > Math.min(c.open, c.close) ||
+        c.low > c.high
       ) {
-        throw new Error("Invalid OHLC candle.");
+        throw Error("Invalid OHLC candle.");
       }
     }
 
     const closes = candles.map(c => c.close);
+
     const fast = ema(closes, settings.fastLength);
     const slow = ema(closes, settings.slowLength);
     const volatility = atr(candles, settings.atrLength);
 
     const signals = [];
+    const zones = [];
+    const sweeps = [];
+
+    let lastBuySweep = -Infinity;
+    let lastSellSweep = -Infinity;
 
     const start = Math.max(
       settings.slowLength + settings.slopeLookback,
       settings.atrLength,
-      settings.zoneLookback + 1
+      settings.zoneLookback + 1,
+      settings.swingLeft + settings.swingRight,
+      settings.liquidityLookback
     );
 
     for (let i = start; i < candles.length; i++) {
@@ -146,7 +280,87 @@
         volatility[i] === null
       ) continue;
 
-      const separation = Math.abs(fast[i] - slow[i]);
+      // Confirm pivots only after right-side candles exist.
+      const pivotIndex = i - settings.swingRight;
+
+      if (
+        pivotIndex >= settings.swingLeft &&
+        volatility[pivotIndex] !== null
+      ) {
+        if (confirmedSwingLow(
+          candles,
+          pivotIndex,
+          settings.swingLeft,
+          settings.swingRight
+        )) {
+          const zone = createZone(
+            "DEMAND", pivotIndex, i,
+            candles, volatility, settings
+          );
+
+          if (zone) zones.push(zone);
+        }
+
+        if (confirmedSwingHigh(
+          candles,
+          pivotIndex,
+          settings.swingLeft,
+          settings.swingRight
+        )) {
+          const zone = createZone(
+            "SUPPLY", pivotIndex, i,
+            candles, volatility, settings
+          );
+
+          if (zone) zones.push(zone);
+        }
+      }
+
+      // A zone invalidated by price cannot be reused.
+      for (const zone of zones) {
+        if (zone.invalidated) continue;
+
+        if (zone.confirmedIndex >= i) continue;
+
+        if (zone.type === "DEMAND" &&
+            current.close < zone.low) {
+          zone.invalidated = true;
+        }
+
+        if (zone.type === "SUPPLY" &&
+            current.close > zone.high) {
+          zone.invalidated = true;
+        }
+      }
+
+      const sweep = findLiquiditySweeps(
+        candles, i, settings
+      );
+
+      if (sweep.buy) {
+        lastBuySweep = i;
+
+        sweeps.push({
+          index: i,
+          time: current.time,
+          direction: "BUY"
+        });
+      }
+
+      if (sweep.sell) {
+        lastSellSweep = i;
+
+        sweeps.push({
+          index: i,
+          time: current.time,
+          direction: "SELL"
+        });
+      }
+
+      // Preserve original v0.1 EMA logic.
+      const separation = Math.abs(
+        fast[i] - slow[i]
+      );
 
       const enoughSeparation =
         separation >=
@@ -162,11 +376,10 @@
         fast[i] < fast[i - settings.slopeLookback] &&
         slow[i] < slow[i - settings.slopeLookback];
 
-      let touchedZone = false;
+      let touchedEMAZone = false;
 
       const from = Math.max(
-        0,
-        i - settings.zoneLookback + 1
+        0, i - settings.zoneLookback + 1
       );
 
       for (let j = from; j <= i; j++) {
@@ -181,12 +394,12 @@
           candles[j].low <= zoneHigh &&
           candles[j].high >= zoneLow
         ) {
-          touchedZone = true;
+          touchedEMAZone = true;
           break;
         }
       }
 
-      if (!enoughSeparation || !touchedZone) {
+      if (!enoughSeparation || !touchedEMAZone) {
         continue;
       }
 
@@ -208,27 +421,73 @@
         direction = "SELL";
       }
 
-      if (direction) {
-        signals.push({
-          index: i,
-          time: current.time,
-          symbol: options.symbol || "EURUSD",
-          direction,
-          entryReference: current.close,
-          ema20: fast[i],
-          ema50: slow[i],
-          atr: volatility[i],
-          reason: "EMA trend + zone return + engulfing"
-        });
-      }
+      if (!direction) continue;
+
+      const relevantType =
+        direction === "BUY" ? "DEMAND" : "SUPPLY";
+
+      const matchingZones = zones.filter(zone =>
+        zone.type === relevantType &&
+        !zone.invalidated &&
+        zone.confirmedIndex < i &&
+        i - zone.confirmedIndex <= settings.maxZoneAge &&
+        touchesZone(current, zone)
+      );
+
+      const hasSupplyDemand =
+        matchingZones.length > 0;
+
+      const hasLiquiditySweep =
+        direction === "BUY"
+          ? i - lastBuySweep <= settings.liquidityMaxAge
+          : i - lastSellSweep <= settings.liquidityMaxAge;
+
+      if (
+        settings.useSupplyDemand &&
+        !hasSupplyDemand
+      ) continue;
+
+      if (
+        settings.useLiquiditySweep &&
+        !hasLiquiditySweep
+      ) continue;
+
+      signals.push({
+        index: i,
+        time: current.time,
+        symbol: options.symbol || "EURUSD",
+        direction,
+        entryReference: current.close,
+        ema20: fast[i],
+        ema50: slow[i],
+        atr: volatility[i],
+
+        supplyDemandConfirmed: hasSupplyDemand,
+        liquiditySweepConfirmed: hasLiquiditySweep,
+
+        zone: hasSupplyDemand
+          ? {
+              type: matchingZones[0].type,
+              low: matchingZones[0].low,
+              high: matchingZones[0].high
+            }
+          : null,
+
+        reason:
+          "EMA trend + zone return + engulfing" +
+          (hasSupplyDemand ? " + supply/demand" : "") +
+          (hasLiquiditySweep ? " + liquidity sweep" : "")
+      });
     }
 
     return {
-      version: "0.1",
+      version: "0.2",
       mode: "SIGNALS_ONLY",
       candlesProcessed: candles.length,
       signalCount: signals.length,
       signals,
+      zones,
+      sweeps,
       indicators: {
         ema20: fast,
         ema50: slow,
@@ -238,7 +497,7 @@
   }
 
   global.RMStrategy = {
-    version: "0.1",
+    version: "0.2",
     settings: DEFAULTS,
     ema,
     atr,
