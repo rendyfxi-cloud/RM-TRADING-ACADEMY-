@@ -3,506 +3,492 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RM Trading Academy | Strategy Backtest</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RM Trading Academy | Strategy Backtester</title>
 <style>
-:root {
-  font-family: system-ui, Arial, sans-serif;
-  color: #edf2ff;
-  background: #0b1020;
-}
-body {
-  max-width: 1000px;
-  margin: 25px auto;
-  padding: 15px;
-}
-section {
-  background: #151d32;
-  border: 1px solid #35415c;
-  padding: 20px;
-  border-radius: 14px;
-  margin: 15px 0;
-}
-input, button {
-  padding: 10px;
-  background: #243454;
-  color: white;
-  border: 1px solid #596783;
-  border-radius: 7px;
-  max-width: 100%;
-}
-button { cursor: pointer; }
-label { display: inline-block; margin: 8px; }
-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 13px;
-}
-td, th {
-  padding: 8px;
-  border-bottom: 1px solid #35415c;
-  text-align: left;
-}
-a { color: #8db6ff; }
-.warn { color: #f5c879; }
-.good { color: #45d7a1; }
-.bad { color: #ff8494; }
-#stats {
-  line-height: 1.9;
-  margin-bottom: 12px;
-}
+:root{font-family:Inter,system-ui,Arial,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:#0b1020;color:#edf2ff;max-width:1150px;margin:25px auto;padding:16px}
+h1{font-size:clamp(24px,4vw,36px)}
+h2{font-size:21px}
+section{background:#151d32;border:1px solid #35415c;padding:22px;border-radius:15px;margin:18px 0}
+input,button{background:#243454;color:white;border:1px solid #596783;border-radius:8px;padding:11px;max-width:100%}
+input[type=number]{width:105px}
+input[type=checkbox]{width:19px;height:19px;vertical-align:middle}
+button{cursor:pointer}
+button.primary{background:#3269ef;border-color:#3269ef}
+label{display:inline-block;margin:8px 12px 8px 0}
+a{color:#8db6ff}
+.warn{color:#f5c879}
+.muted{color:#a8b6d0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.card{background:#202b45;border:1px solid #40506e;border-radius:12px;padding:16px}
+.card strong{display:block;font-size:23px;margin-top:7px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:10px;border-bottom:1px solid #35415c;text-align:left;white-space:nowrap}
+.tablewrap{overflow:auto}
+.good{color:#4dd8a4}
+.bad{color:#ff8d9d}
+#msg{min-height:22px}
 </style>
 </head>
-
 <body>
-<h1>RM Trading Academy — Strategy Backtest</h1>
+
+<h1>RM Trading Academy — PRO Backtester</h1>
 <p><a href="index.html">← Dashboard</a></p>
 
 <section>
-  <strong>Strategy Engine v0.1 — Historical Backtester</strong>
-  <p class="warn">
-    Uses signals from strategy-engine.js. This is not full
-    TradingView Pine v6.1 parity. MTF supply/demand,
-    liquidity sweeps, original state management and
-    partial take-profits are not yet reproduced.
-    No broker connection or live orders.
-  </p>
-  <p id="engineStatus">Checking strategy engine...</p>
+<h2>Strategy Engine v0.2 — Filter Comparison</h2>
+<p class="warn">
+Research prototype only. EMA20/50, EMA-zone return and engulfing
+signals come from strategy-engine.js. Optional supply/demand and
+liquidity filters are simplified M15 candle-based approximations,
+not exact Pine v6.1 logic. No live prices or broker orders.
+</p>
 </section>
 
 <section>
-  <h2>Upload historical OHLC CSV</h2>
-  <p>
-    Required columns: time,open,high,low,close.
-    Use chronological M15 candles, oldest first,
-    with at least 100 valid rows.
-  </p>
-
-  <input type="file" id="file" accept=".csv,text/csv">
-
-  <div>
-    <label>
-      Risk %
-      <input id="risk" type="number"
-        value="1" min="0.1" max="2" step="0.1">
-    </label>
-
-    <label>
-      Reward / Risk
-      <input id="rr" type="number"
-        value="2" min="1" max="5" step="0.5">
-    </label>
-
-    <label>
-      Spread (price units)
-      <input id="spread" type="number"
-        value="0.00015" min="0" step="0.00001">
-    </label>
-
-    <label>
-      ATR stop multiplier
-      <input id="stopMultiplier" type="number"
-        value="1.5" min="0.1" max="10" step="0.1">
-    </label>
-  </div>
-
-  <button id="run">Run strategy backtest</button>
-  <p id="msg" role="status"></p>
+<h2>1. Historical Market Data</h2>
+<p>Upload chronological M15 OHLC candles. Required CSV headers:
+<code>time,open,high,low,close</code>. Minimum 100 candles.</p>
+<input type="file" id="file" accept=".csv,text/csv">
 </section>
 
 <section>
-  <h2>Results</h2>
-  <div id="stats">Upload a CSV to begin.</div>
+<h2>2. Risk Management</h2>
+<label>Starting balance ($)
+<input id="balance" type="number" value="10000" min="100"></label>
+<label>Risk per trade (%)
+<input id="risk" type="number" value="1" min="0.1" max="2" step="0.1"></label>
+<label>Reward / Risk
+<input id="rr" type="number" value="2" min="1" max="5" step="0.5"></label>
+<label>Spread (price units)
+<input id="spread" type="number" value="0.00015" min="0" step="0.00001"></label>
+</section>
 
-  <div style="overflow:auto">
-    <table>
-      <thead>
-        <tr>
-          <th>Entry time</th>
-          <th>Direction</th>
-          <th>Entry</th>
-          <th>Exit time</th>
-          <th>Exit</th>
-          <th>Outcome</th>
-          <th>P&amp;L</th>
-        </tr>
-      </thead>
-      <tbody id="results"></tbody>
-    </table>
-  </div>
+<section>
+<h2>3. Strategy Filters</h2>
+
+<label>
+<input type="checkbox" id="sd">
+Require Supply / Demand confirmation
+</label>
+<p class="muted">
+Experimental proxy: BUY requires the signal candle to overlap the
+recent low-side zone; SELL requires overlap with the recent
+high-side zone, using the previous 20 candles and an ATR buffer.
+</p>
+
+<label>
+<input type="checkbox" id="liq">
+Require Liquidity Sweep confirmation
+</label>
+<p class="muted">
+Experimental proxy: BUY requires a wick below a recent five-candle
+low followed by a close back above that low; SELL uses the
+opposite condition.
+</p>
+
+<label>Supply / Demand lookback
+<input id="sdlook" type="number" value="20" min="5" max="100"></label>
+
+<label>Liquidity lookback
+<input id="liqlook" type="number" value="5" min="2" max="30"></label>
+
+<p class="muted">
+Both filters are OFF by default. The comparison always includes
+the unfiltered baseline.
+</p>
+
+<button class="primary" id="run">Run Strategy Comparison</button>
+<p id="msg" role="status"></p>
+</section>
+
+<section>
+<h2>4. Performance Comparison</h2>
+<div id="comparison" class="cards">
+<div class="card">Upload a CSV and run the comparison.</div>
+</div>
+</section>
+
+<section>
+<h2>5. Trade Journal</h2>
+<p id="summary" class="muted">No backtest results yet.</p>
+<div class="tablewrap">
+<table>
+<thead>
+<tr>
+<th>Entry time</th>
+<th>Side</th>
+<th>Entry</th>
+<th>Exit time</th>
+<th>Exit</th>
+<th>Outcome</th>
+<th>P&amp;L</th>
+</tr>
+</thead>
+<tbody id="results"></tbody>
+</table>
+</div>
 </section>
 
 <script src="./strategy-engine.js"></script>
-
 <script>
 "use strict";
 
 const $ = id => document.getElementById(id);
-const fmt = n => Number(n).toFixed(5);
-
-function checkEngine() {
-  const ok =
-    typeof window.RMStrategy === "object" &&
-    typeof window.RMStrategy.analyze === "function";
-
-  $("engineStatus").textContent = ok
-    ? "Strategy engine loaded successfully."
-    : "Strategy engine unavailable. Check strategy-engine.js.";
-
-  $("engineStatus").className = ok ? "good" : "bad";
-  return ok;
-}
-
-checkEngine();
+const money = n => "$" + n.toFixed(2);
+const price = n => Number(n).toFixed(5);
 
 function parseCSV(text) {
-  const lines = text.replace(/\r/g, "")
-    .trim().split("\n");
+  const lines = text.replace(/\r/g,"").trim().split("\n");
+  const header = lines.shift().split(",").map(
+    x => x.trim().replace(/^"|"$/g,"").toLowerCase()
+  );
 
-  const header = lines.shift()
-    .split(",")
-    .map(x => x.trim().toLowerCase()
-      .replace(/^"|"$/g, ""));
+  const keys = ["time","open","high","low","close"];
+  const indexes = keys.map(k => header.indexOf(k));
 
-  const names = ["time", "open", "high", "low", "close"];
-  const cols = names.map(name => header.indexOf(name));
-
-  if (cols.some(i => i < 0)) {
-    throw Error(
-      "CSV must contain time,open,high,low,close."
-    );
+  if (indexes.some(i => i < 0)) {
+    throw Error("CSV needs time,open,high,low,close columns.");
   }
 
   const candles = lines.map(line => {
-    const values = line.split(",");
-
+    const v = line.split(",");
     return {
-      time: values[cols[0]].trim(),
-      open: Number(values[cols[1]]),
-      high: Number(values[cols[2]]),
-      low: Number(values[cols[3]]),
-      close: Number(values[cols[4]])
+      time: v[indexes[0]].trim(),
+      open: Number(v[indexes[1]]),
+      high: Number(v[indexes[2]]),
+      low: Number(v[indexes[3]]),
+      close: Number(v[indexes[4]])
     };
-  }).filter(c =>
-    c.time &&
-    [c.open, c.high, c.low, c.close]
-      .every(Number.isFinite) &&
-    c.low <= Math.min(c.open, c.close) &&
-    c.high >= Math.max(c.open, c.close)
-  );
+  });
+
+  for (const c of candles) {
+    if (!c.time ||
+        ![c.open,c.high,c.low,c.close].every(Number.isFinite) ||
+        c.high < Math.max(c.open,c.close) ||
+        c.low > Math.min(c.open,c.close)) {
+      throw Error("CSV contains an invalid OHLC candle.");
+    }
+  }
 
   if (candles.length < 100) {
-    throw Error("At least 100 valid candles required.");
+    throw Error("At least 100 candles are required.");
   }
 
   return candles;
 }
 
-function normalizeSide(signal) {
-  const value = String(
-    signal.side ??
-    signal.direction ??
-    signal.type ??
-    signal.action ??
-    signal.signal ??
-    ""
-  ).toUpperCase();
+function supplyDemandFilter(candles, signal, atrValues, lookback) {
+  const i = signal.index;
+  if (i < lookback) return false;
 
-  if (value.includes("BUY") || value.includes("LONG"))
-    return "BUY";
+  const previous = candles.slice(i-lookback,i);
+  const lows = previous.map(c => c.low);
+  const highs = previous.map(c => c.high);
 
-  if (value.includes("SELL") || value.includes("SHORT"))
-    return "SELL";
+  const lowest = Math.min(...lows);
+  const highest = Math.max(...highs);
+  const buffer = (atrValues[i] || 0) * 0.5;
+  const current = candles[i];
 
-  return null;
+  if (signal.direction === "BUY") {
+    return current.low <= lowest + buffer &&
+           current.close > lowest;
+  }
+
+  return current.high >= highest - buffer &&
+         current.close < highest;
 }
 
-function signalIndex(signal, candles) {
-  const fields = [
-    signal.index,
-    signal.barIndex,
-    signal.candleIndex,
-    signal.bar,
-    signal.i
-  ];
+function liquidityFilter(candles, signal, lookback) {
+  const i = signal.index;
+  if (i < lookback) return false;
 
-  for (const value of fields) {
-    if (Number.isInteger(value) &&
-        value >= 0 &&
-        value < candles.length) {
-      return value;
-    }
+  const previous = candles.slice(i-lookback,i);
+  const lowest = Math.min(...previous.map(c => c.low));
+  const highest = Math.max(...previous.map(c => c.high));
+  const current = candles[i];
+
+  if (signal.direction === "BUY") {
+    return current.low < lowest &&
+           current.close > lowest;
   }
 
-  const time =
-    signal.time ??
-    signal.timestamp ??
-    signal.candleTime;
-
-  if (time !== undefined) {
-    return candles.findIndex(
-      c => String(c.time) === String(time)
-    );
-  }
-
-  return -1;
+  return current.high > highest &&
+         current.close < highest;
 }
 
-function prepareSignals(analysis, candles) {
-  if (!analysis ||
-      !Array.isArray(analysis.signals)) {
-    throw Error(
-      "The strategy engine did not return a signals array."
-    );
-  }
-
-  const result = [];
-
-  for (const signal of analysis.signals) {
-    const side = normalizeSide(signal);
-    const index = signalIndex(signal, candles);
-
-    if (side && index >= 0) {
-      result.push({ index, side, original: signal });
-    }
-  }
-
-  result.sort((a, b) => a.index - b.index);
-
-  if (analysis.signals.length && !result.length) {
-    throw Error(
-      "Signals were returned, but their direction or " +
-      "candle index could not be identified. " +
-      "The engine output format needs checking."
-    );
-  }
-
-  return result;
-}
-
-function calculateATR(candles, period = 14) {
-  const result = [];
-  let previousATR = null;
-
-  for (let i = 0; i < candles.length; i++) {
-    const c = candles[i];
-    const previous = candles[i - 1];
-
-    const tr = previous
-      ? Math.max(
-          c.high - c.low,
-          Math.abs(c.high - previous.close),
-          Math.abs(c.low - previous.close)
-        )
-      : c.high - c.low;
-
-    previousATR = previousATR === null
-      ? tr
-      : (previousATR * (period - 1) + tr) / period;
-
-    result.push(previousATR);
-  }
-
-  return result;
-}
-
-function runBacktest(candles, risk, rr, spread, multiplier) {
-  if (!checkEngine()) {
-    throw Error("Strategy engine not loaded.");
-  }
-
-  const analysis = window.RMStrategy.analyze(candles);
-  const signals = prepareSignals(analysis, candles);
-  const atr = calculateATR(candles);
-
-  let balance = 10000;
+function simulate(candles, signals, settings, atrValues) {
+  let balance = settings.balance;
   let peak = balance;
-  let maxDrawdown = 0;
-
+  let maxDD = 0;
+  let position = null;
   const trades = [];
-  let nextAvailableIndex = 0;
 
-  for (const signal of signals) {
-    const entryIndex = signal.index + 1;
+  const byIndex = new Map(signals.map(s => [s.index,s]));
 
-    if (entryIndex < nextAvailableIndex ||
-        entryIndex >= candles.length) {
+  for (let i=0;i<candles.length;i++) {
+    const candle = candles[i];
+
+    if (position) {
+      const p = position;
+
+      const hitSL = p.side === "BUY"
+        ? candle.low <= p.sl
+        : candle.high >= p.sl;
+
+      const hitTP = p.side === "BUY"
+        ? candle.high >= p.tp
+        : candle.low <= p.tp;
+
+      if (hitSL || hitTP) {
+        // Conservative assumption: SL wins a same-bar tie.
+        const outcome = hitSL ? "SL" : "TP";
+        const exit = hitSL ? p.sl : p.tp;
+        const profit = hitSL
+          ? -p.riskAmount
+          : p.riskAmount * settings.rr;
+
+        balance += profit;
+        peak = Math.max(peak,balance);
+        maxDD = Math.max(maxDD,(peak-balance)/peak*100);
+
+        trades.push({
+          ...p,
+          exit,
+          exitTime:candle.time,
+          outcome,
+          profit
+        });
+
+        position = null;
+      }
+
       continue;
     }
 
-    const side = signal.side;
-    const candle = candles[entryIndex];
-    const volatility = atr[signal.index];
+    // Signals are confirmed at candle close.
+    // Entry is at the following candle's open.
+    const signal = byIndex.get(i-1);
+    if (!signal) continue;
 
-    if (!(volatility > 0)) continue;
+    const atr = atrValues[i-1];
+    if (!(atr > 0)) continue;
 
-    // Entry at the next candle's opening price.
-    // Spread is applied against the trade direction.
+    const side = signal.direction;
     const entry = candle.open +
-      (side === "BUY" ? spread / 2 : -spread / 2);
+      (side === "BUY" ? settings.spread/2 : -settings.spread/2);
 
-    const stopDistance =
-      volatility * multiplier + spread;
+    const distance = atr * 1.5 + settings.spread;
+    const riskAmount = balance * settings.risk / 100;
 
-    const stop = side === "BUY"
-      ? entry - stopDistance
-      : entry + stopDistance;
+    position = {
+      time:candle.time,
+      side,
+      entry,
+      sl:side === "BUY" ? entry-distance : entry+distance,
+      tp:side === "BUY"
+        ? entry+distance*settings.rr
+        : entry-distance*settings.rr,
+      riskAmount
+    };
 
-    const target = side === "BUY"
-      ? entry + stopDistance * rr
-      : entry - stopDistance * rr;
+    // Check the entry candle as well.
+    const hitSL = side === "BUY"
+      ? candle.low <= position.sl
+      : candle.high >= position.sl;
 
-    const riskAmount = balance * risk / 100;
+    const hitTP = side === "BUY"
+      ? candle.high >= position.tp
+      : candle.low <= position.tp;
 
-    // Only one position at a time.
-    // Start evaluating exits on the entry candle.
-    for (let j = entryIndex; j < candles.length; j++) {
-      const bar = candles[j];
-
-      const stopHit = side === "BUY"
-        ? bar.low <= stop
-        : bar.high >= stop;
-
-      const targetHit = side === "BUY"
-        ? bar.high >= target
-        : bar.low <= target;
-
-      if (!stopHit && !targetHit) continue;
-
-      // Conservative assumption:
-      // when both levels are hit in one candle,
-      // count the stop-loss first.
-      const outcome = stopHit ? "SL" : "TP";
-      const exit = stopHit ? stop : target;
-
-      const profit = stopHit
+    if (hitSL || hitTP) {
+      const outcome = hitSL ? "SL" : "TP";
+      const exit = hitSL ? position.sl : position.tp;
+      const profit = hitSL
         ? -riskAmount
-        : riskAmount * rr;
+        : riskAmount*settings.rr;
 
       balance += profit;
-      peak = Math.max(peak, balance);
-
-      maxDrawdown = Math.max(
-        maxDrawdown,
-        (peak - balance) / peak * 100
-      );
+      peak = Math.max(peak,balance);
+      maxDD = Math.max(maxDD,(peak-balance)/peak*100);
 
       trades.push({
-        time: candle.time,
-        side,
-        entry,
-        exitTime: bar.time,
+        ...position,
         exit,
+        exitTime:candle.time,
         outcome,
         profit
       });
 
-      nextAvailableIndex = j + 1;
-      break;
-    }
-
-    // If no exit was found, don't open another trade.
-    if (nextAvailableIndex <= entryIndex) {
-      break;
+      position = null;
     }
   }
 
+  const wins = trades.filter(t => t.profit > 0).length;
+
   return {
-    candles: candles.length,
-    signals: signals.length,
-    trades,
     balance,
-    maxDrawdown
+    net:balance-settings.balance,
+    trades,
+    wins,
+    winRate:trades.length ? wins/trades.length*100 : 0,
+    drawdown:maxDD,
+    open:!!position
   };
 }
 
-function showResults(result) {
-  const wins = result.trades.filter(
-    trade => trade.profit > 0
-  ).length;
+function metricCard(label,value,detail) {
+  const div = document.createElement("div");
+  div.className = "card";
 
-  const count = result.trades.length;
+  const name = document.createElement("span");
+  name.className = "muted";
+  name.textContent = label;
 
-  const winRate = count
-    ? (wins / count * 100).toFixed(1)
-    : "N/A";
+  const strong = document.createElement("strong");
+  strong.textContent = value;
 
-  $("stats").textContent =
-    `${result.candles} candles | ` +
-    `${result.signals} strategy signals | ` +
-    `${count} closed trades | ` +
-    `${winRate}% wins | ` +
-    `Ending balance $${result.balance.toFixed(2)} | ` +
-    `Max closed-equity drawdown ` +
-    `${result.maxDrawdown.toFixed(2)}%`;
+  const small = document.createElement("span");
+  small.className = "muted";
+  small.textContent = detail;
 
+  div.append(name,strong,small);
+  return div;
+}
+
+function renderComparison(baseline,filtered,baseCount,filteredCount) {
+  const root = $("comparison");
+  root.replaceChildren();
+
+  const items = [
+    ["Baseline signals",String(baseCount),"Without optional filters"],
+    ["Filtered signals",String(filteredCount),"After optional filters"],
+    ["Baseline trades",String(baseline.trades.length),
+      baseline.winRate.toFixed(1)+"% win rate"],
+    ["Filtered trades",String(filtered.trades.length),
+      filtered.winRate.toFixed(1)+"% win rate"],
+    ["Baseline net P&L",money(baseline.net),
+      "Ending balance "+money(baseline.balance)],
+    ["Filtered net P&L",money(filtered.net),
+      "Ending balance "+money(filtered.balance)],
+    ["Baseline drawdown",baseline.drawdown.toFixed(2)+"%",
+      "Closed-equity drawdown"],
+    ["Filtered drawdown",filtered.drawdown.toFixed(2)+"%",
+      "Closed-equity drawdown"]
+  ];
+
+  for (const item of items) {
+    root.append(metricCard(...item));
+  }
+}
+
+function renderTrades(result) {
   $("results").replaceChildren();
 
-  for (const trade of result.trades) {
-    const row = document.createElement("tr");
-
+  for (const t of result.trades) {
+    const tr = document.createElement("tr");
     const values = [
-      trade.time,
-      trade.side,
-      fmt(trade.entry),
-      trade.exitTime,
-      fmt(trade.exit),
-      trade.outcome,
-      trade.profit.toFixed(2)
+      t.time,t.side,price(t.entry),t.exitTime,
+      price(t.exit),t.outcome,t.profit.toFixed(2)
     ];
 
     for (const value of values) {
-      const cell = document.createElement("td");
-      cell.textContent = value;
-      row.appendChild(cell);
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.append(td);
     }
 
-    $("results").appendChild(row);
+    $("results").append(tr);
   }
+
+  $("summary").textContent =
+    result.trades.length+" closed trades | "+
+    result.winRate.toFixed(1)+"% wins | "+
+    "Ending balance "+money(result.balance)+
+    " | Net P&L "+money(result.net)+
+    (result.open ? " | One open position excluded" : "");
 }
 
 $("run").onclick = async () => {
   try {
-    $("msg").textContent = "Running backtest...";
+    $("msg").textContent = "Running comparison...";
+
+    if (!window.RMStrategy ||
+        typeof RMStrategy.analyze !== "function") {
+      throw Error("strategy-engine.js did not load.");
+    }
 
     const file = $("file").files[0];
-
-    if (!file) {
-      throw Error("Choose a CSV file first.");
-    }
+    if (!file) throw Error("Choose a CSV file first.");
 
     const candles = parseCSV(await file.text());
 
-    const risk = Number($("risk").value);
-    const rr = Number($("rr").value);
-    const spread = Number($("spread").value);
-    const multiplier =
-      Number($("stopMultiplier").value);
+    const settings = {
+      balance:Number($("balance").value),
+      risk:Number($("risk").value),
+      rr:Number($("rr").value),
+      spread:Number($("spread").value)
+    };
 
-    if (
-      !(risk > 0 && risk <= 2) ||
-      !(rr >= 1 && rr <= 5) ||
-      !(spread >= 0) ||
-      !(multiplier > 0 && multiplier <= 10)
-    ) {
-      throw Error("Check the risk settings.");
+    if (!(settings.balance>=100 &&
+          settings.risk>=0.1 && settings.risk<=2 &&
+          settings.rr>=1 && settings.rr<=5 &&
+          settings.spread>=0)) {
+      throw Error("Check the balance, risk, R:R and spread values.");
     }
 
-    const result = runBacktest(
-      candles, risk, rr, spread, multiplier
+    const sdLook = Number($("sdlook").value);
+    const liqLook = Number($("liqlook").value);
+
+    if (!Number.isInteger(sdLook) || sdLook<5 || sdLook>100 ||
+        !Number.isInteger(liqLook) || liqLook<2 || liqLook>30) {
+      throw Error("Invalid filter lookback settings.");
+    }
+
+    const analysis = RMStrategy.analyze(candles);
+    const baselineSignals = analysis.signals;
+    const atrValues = analysis.indicators.atr;
+
+    const filteredSignals = baselineSignals.filter(signal => {
+      if ($("sd").checked &&
+          !supplyDemandFilter(
+            candles,signal,atrValues,sdLook
+          )) return false;
+
+      if ($("liq").checked &&
+          !liquidityFilter(
+            candles,signal,liqLook
+          )) return false;
+
+      return true;
+    });
+
+    const baseline = simulate(
+      candles,baselineSignals,settings,atrValues
     );
 
-    showResults(result);
+    const filtered = simulate(
+      candles,filteredSignals,settings,atrValues
+    );
+
+    renderComparison(
+      baseline,filtered,
+      baselineSignals.length,filteredSignals.length
+    );
+
+    renderTrades(filtered);
 
     $("msg").textContent =
-      "Historical simulation completed. " +
-      "Same-bar SL/TP assumes SL first. " +
-      "Commissions, swaps, gaps and variable " +
-      "slippage are not fully modeled.";
+      "Comparison complete: "+candles.length+
+      " candles processed. Trade journal shows filtered results. "+
+      "Same-bar SL/TP assumes SL first. No commissions, "+
+      "swaps or variable slippage modeled.";
 
-  } catch (error) {
-    $("msg").textContent = error.message;
-    $("msg").className = "bad";
+  } catch(error) {
+    $("msg").textContent = "Error: "+error.message;
   }
 };
 </script>
